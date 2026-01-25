@@ -221,6 +221,38 @@ async def like_food(callback: CallbackQuery):
     loc = cursor.fetchone()
     await callback.message.answer(f"📍 Где забрать:\n{loc[0]}")
 
+# ================= MY ADS =================
+
+@dp.message(lambda m: m.text == "📢 Мои объявления")
+async def my_ads(message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, location FROM food WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    foods = cursor.fetchall()
+
+    if not foods:
+        await message.answer("📭 У тебя пока нет объявлений.", reply_markup=main_keyboard)
+        return
+
+    for food_id, photo, price, desc, loc in foods:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🗑 Удалить",
+                        callback_data=f"admin_delete:{food_id}"
+                    )
+                ]
+            ]
+        )
+
+        await message.answer_photo(
+            photo=photo,
+            caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
+            reply_markup=keyboard
+        )
+
 # ================= ADMIN =================
 @dp.message(lambda m: m.text == "/admin" and m.from_user.id == ADMIN_ID)
 async def admin_panel(message: Message):
