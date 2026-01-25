@@ -16,8 +16,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 # ================= CONFIG =================
-BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"   # ← ВСТАВЬ ТОКЕН
-ADMIN_ID = 123456789                     # ← ВСТАВЬ СВОЙ TG ID
+BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"   # ← ВСТАВЬ ТОКЕН
+ADMIN_ID = 7204477763                  # ← ВСТАВЬ СВОЙ TG ID
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -56,6 +56,7 @@ user_filters = {}
 # ================= KEYBOARDS =================
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
+        [KeyboardButton(text="▶️ Старт")],
         [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
         [KeyboardButton(text="🛠 Услуги")],
         [KeyboardButton(text="📢 Мои объявления")]
@@ -130,6 +131,16 @@ async def cancel_action(message: Message, state: FSMContext):
 # ================= START =================
 @dp.message(CommandStart())
 async def start(message: Message):
+    track_user(message.from_user.id)
+    await message.answer(
+        "👋 Добро пожаловать в ГВФ Маркет 🛒\n\n"
+        "Здесь продают еду, напитки и услуги.\n"
+        "Выбирай, что нужно 👇",
+        reply_markup=main_keyboard
+    )
+
+@dp.message(lambda m: m.text == "▶️ Старт")
+async def start_button(message: Message):
     track_user(message.from_user.id)
     await message.answer(
         "👋 Добро пожаловать в ГВФ Маркет 🛒\n\n"
