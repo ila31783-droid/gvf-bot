@@ -1,37 +1,22 @@
 import asyncio
-import sqlite3
 
-from aiogram import Bot, Dispatcher
-from aiogram.filters import CommandStart
-from aiogram.types import (
-    Message,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery
-)
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-
-# ================= TOKEN =================
-BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
 from aiogram.types import Message
-import asyncio
 
-BOT_TOKEN = "ТВОЙ_ТОКЕН_ТУТ"
+# ================= TOKEN =================
+BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
 
+# ================= BOT =================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# ================= HANDLERS =================
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer("Бот жив 🚀")
 
+# ================= RUN =================
 async def main():
     await dp.start_polling(bot)
 
