@@ -108,6 +108,15 @@ def track_user(user_id: int):
     db.commit()
 
 # ================= START =================
+
+# ===== Global Cancel Handler =====
+@dp.message(lambda m: m.text == "❌ Отмена")
+async def cancel_action(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "❌ Добавление отменено",
+        reply_markup=main_keyboard
+    )
 @dp.message(CommandStart())
 async def start(message: Message):
     user_id = message.from_user.id
