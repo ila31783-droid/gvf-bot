@@ -96,8 +96,25 @@ def track_user(user_id: int):
 # ================= START =================
 @dp.message(CommandStart())
 async def start(message: Message):
-    track_user(message.from_user.id)
-    await message.answer("Привет 👋\nМаркетплейс ГВФ", reply_markup=main_keyboard)
+    user_id = message.from_user.id
+
+    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    is_new = cursor.fetchone() is None
+
+    track_user(user_id)
+
+    if is_new:
+        text = (
+            "👋 Добро пожаловать!\n\n"
+            "Это бот «ГВФ Маркет» 🛒\n"
+            "Здесь производится продажа еды, товаров повседневного спроса,\n"
+            "а также различных услуг в сфере учёбы 📚\n\n"
+            "👇 Выбирай, что тебе нужно"
+        )
+    else:
+        text = "👋 С возвращением!\nВыбирай раздел 👇"
+
+    await message.answer(text, reply_markup=main_keyboard)
 
 # ================= FOOD MENU =================
 @dp.message(lambda m: m.text == "🍔 Еда")
