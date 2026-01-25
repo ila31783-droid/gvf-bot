@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS food (
     photo TEXT,
     price INTEGER,
     description TEXT,
+    dorm INTEGER,
+    food_type TEXT,
     location TEXT,
     created_at INTEGER
 )
@@ -75,11 +77,23 @@ cancel_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+food_type_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🍲 Домашка")],
+        [KeyboardButton(text="🍰 Сладкое")],
+        [KeyboardButton(text="🥟 Полуфабрикаты")],
+        [KeyboardButton(text="❌ Отмена")]
+    ],
+    resize_keyboard=True
+)
+
 # ================= FSM =================
 class AddFood(StatesGroup):
     photo = State()
     price = State()
     description = State()
+    dorm = State()
+    food_type = State()
     location = State()
 
 # ================= HELPERS =================
@@ -152,17 +166,65 @@ async def food_price(message: Message, state: FSMContext):
 @dp.message(AddFood.description)
 async def food_desc(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
+    await message.answer(
+        "🏠 В какой общаге?\n\nНапример: 3",
+        reply_markup=cancel_keyboard
+    )
+    await state.set_state(AddFood.dorm)
+
+@dp.message(AddFood.dorm)
+async def food_dorm(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("❌ Напиши номер общаги цифрой")
+        return
+
+    await state.update_data(dorm=int(message.text))
+    await message.answer(
+        "🍽 Тип еды:\n\n"
+        "🍲 Домашка — супы, вторые блюда\n"
+        "🍰 Сладкое — торты, пироги\n"
+        "🥟 Полуфабрикаты — пельмени, заморозка",
+        reply_markup=food_type_keyboard
+    )
+    await state.set_state(AddFood.food_type)
+
+@dp.message(AddFood.food_type)
+async def food_type(message: Message, state: FSMContext):
+    types = {
+        "🍲 Домашка": "home",
+        "🍰 Сладкое": "sweet",
+        "🥟 Полуфабрикаты": "semi"
+    }
+
+    if message.text not in types:
+        await message.answer("❌ Выбери тип кнопкой")
+        return
+
+    await state.update_data(food_type=types[message.text])
     await message.answer("📍 Общежитие / этаж / комната", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.location)
 
 @dp.message(AddFood.location)
 async def food_finish(message: Message, state: FSMContext):
     data = await state.get_data()
+
     cursor.execute(
-        "INSERT INTO food (user_id, photo, price, description, location, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (message.from_user.id, data["photo"], data["price"], data["description"], message.text, now())
+        """INSERT INTO food 
+        (user_id, photo, price, description, dorm, food_type, location, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            message.from_user.id,
+            data["photo"],
+            data["price"],
+            data["description"],
+            data["dorm"],
+            data["food_type"],
+            message.text,
+            now()
+        )
     )
     db.commit()
+
     await state.clear()
     await message.answer("✅ Еда добавлена", reply_markup=main_keyboard)
 
@@ -173,7 +235,7 @@ async def view_food(message: Message):
     await show_food(message.from_user.id, message)
 
 async def show_food(user_id: int, message: Message):
-    cursor.execute("SELECT id, photo, price, description, location FROM food ORDER BY created_at DESC")
+    cursor.execute("SELECT id, photo, price, description, dorm, food_type, location FROM food ORDER BY created_at DESC")
     foods = cursor.fetchall()
 
     index = user_feed_index.get(user_id, 0)
@@ -181,7 +243,7 @@ async def show_food(user_id: int, message: Message):
         await message.answer("🍽 Еда закончилась", reply_markup=food_keyboard)
         return
 
-    food_id, photo, price, description, location = foods[index]
+    food_id, photo, price, description, dorm, food_type, location = foods[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -195,7 +257,7 @@ async def show_food(user_id: int, message: Message):
 
     await message.answer_photo(
         photo=photo,
-        caption=f"💰 {price}\n📝 {description}",
+        caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {description}",
         reply_markup=keyboard
     )
 
@@ -226,7 +288,7 @@ async def like_food(callback: CallbackQuery):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, location FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, food_type, location FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
     foods = cursor.fetchall()
@@ -235,7 +297,7 @@ async def my_ads(message: Message):
         await message.answer("📭 У тебя пока нет объявлений.", reply_markup=main_keyboard)
         return
 
-    for food_id, photo, price, desc, loc in foods:
+    for food_id, photo, price, desc, dorm, food_type, loc in foods:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -249,7 +311,7 @@ async def my_ads(message: Message):
 
         await message.answer_photo(
             photo=photo,
-            caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
+            caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {desc}\n📍 {loc}",
             reply_markup=keyboard
         )
 
@@ -285,7 +347,7 @@ async def admin_food(callback: CallbackQuery):
     await show_admin_food(callback)
 
 async def show_admin_food(callback: CallbackQuery):
-    cursor.execute("SELECT id, photo, price, description, location FROM food ORDER BY created_at DESC")
+    cursor.execute("SELECT id, photo, price, description, dorm, food_type, location FROM food ORDER BY created_at DESC")
     foods = cursor.fetchall()
 
     index = admin_feed_index.get(callback.from_user.id, 0)
@@ -293,7 +355,7 @@ async def show_admin_food(callback: CallbackQuery):
         await callback.message.answer("Нет объявлений")
         return
 
-    food_id, photo, price, desc, loc = foods[index]
+    food_id, photo, price, desc, dorm, food_type, loc = foods[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -307,7 +369,7 @@ async def show_admin_food(callback: CallbackQuery):
 
     await callback.message.answer_photo(
         photo=photo,
-        caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
+        caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {desc}\n📍 {loc}",
         reply_markup=keyboard
     )
 
