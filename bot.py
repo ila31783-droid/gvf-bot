@@ -77,9 +77,9 @@ food_keyboard = ReplyKeyboardMarkup(
 filter_dorm_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="Общага 1"),
-            KeyboardButton(text="Общага 2"),
-            KeyboardButton(text="Общага 3")
+            KeyboardButton(text="Общага 3"),
+            KeyboardButton(text="Общага 4"),
+            KeyboardButton(text="Общага 5")
         ],
         [KeyboardButton(text="❌ Сброс фильтров")],
         [KeyboardButton(text="⬅️ Назад")]
@@ -214,7 +214,7 @@ async def food_desc(message: Message, state: FSMContext):
 
 @dp.message(AddFood.dorm)
 async def food_dorm(message: Message, state: FSMContext):
-    if not message.text.isdigit() or int(message.text) not in [1,2,3]:
+    if not message.text.isdigit() or int(message.text) not in [3,4,5]:
         return
     await state.update_data(dorm=int(message.text))
     await message.answer(
