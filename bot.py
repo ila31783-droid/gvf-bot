@@ -17,7 +17,7 @@ from aiogram.fsm.context import FSMContext
 
 # ================= CONFIG =================
 BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
-ADMIN_ID = 7204477763 # ← ВСТАВЬ СВОЙ TG ID
+ADMIN_ID = 123456789  # ← ВСТАВЬ СВОЙ TG ID
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -49,6 +49,7 @@ db.commit()
 
 # ================= MEMORY =================
 user_feed_index = {}
+admin_feed_index = {}
 
 # ================= KEYBOARDS =================
 main_keyboard = ReplyKeyboardMarkup(
@@ -98,16 +99,9 @@ async def start(message: Message):
     track_user(message.from_user.id)
     await message.answer("Привет 👋\nМаркетплейс ГВФ", reply_markup=main_keyboard)
 
-# ================= CANCEL =================
-@dp.message(lambda m: m.text == "❌ Отмена")
-async def cancel(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Отменено", reply_markup=main_keyboard)
-
 # ================= FOOD MENU =================
 @dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
-    track_user(message.from_user.id)
     await message.answer("🍔 Раздел еды", reply_markup=food_keyboard)
 
 @dp.message(lambda m: m.text == "⬅️ Назад")
@@ -123,7 +117,7 @@ async def add_food(message: Message, state: FSMContext):
 @dp.message(AddFood.photo)
 async def food_photo(message: Message, state: FSMContext):
     if not message.photo:
-        await message.answer("❌ Нужна фотография", reply_markup=cancel_keyboard)
+        await message.answer("❌ Нужно фото", reply_markup=cancel_keyboard)
         return
     await state.update_data(photo=message.photo[-1].file_id)
     await message.answer("💰 Цена?", reply_markup=cancel_keyboard)
@@ -158,7 +152,6 @@ async def food_finish(message: Message, state: FSMContext):
 # ================= VIEW FOOD (SWIPE) =================
 @dp.message(lambda m: m.text == "📋 Смотреть еду")
 async def view_food(message: Message):
-    track_user(message.from_user.id)
     user_feed_index[message.from_user.id] = 0
     await show_food(message.from_user.id, message)
 
@@ -179,9 +172,6 @@ async def show_food(user_id: int, message: Message):
                 InlineKeyboardButton(text="⬅️", callback_data="prev"),
                 InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
                 InlineKeyboardButton(text="➡️", callback_data="next")
-            ],
-            [
-                InlineKeyboardButton(text="❌ Выйти", callback_data="exit")
             ]
         ]
     )
@@ -211,67 +201,91 @@ async def like_food(callback: CallbackQuery):
     await callback.answer()
     food_id = int(callback.data.split(":")[1])
     cursor.execute("SELECT location FROM food WHERE id = ?", (food_id,))
-    location = cursor.fetchone()
-    await callback.message.answer(f"📍 Где забрать:\n{location[0]}")
+    loc = cursor.fetchone()
+    await callback.message.answer(f"📍 Где забрать:\n{loc[0]}")
 
-@dp.callback_query(lambda c: c.data == "exit")
-async def exit_feed(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.delete()
-    await callback.message.answer("Выход 👌", reply_markup=food_keyboard)
-
-# ================= MY ADS =================
-@dp.message(lambda m: m.text == "📢 Мои объявления")
-async def my_ads(message: Message):
-    cursor.execute(
-        "SELECT id, photo, price, description, location FROM food WHERE user_id = ?",
-        (message.from_user.id,)
+# ================= ADMIN =================
+@dp.message(lambda m: m.text == "/admin" and m.from_user.id == ADMIN_ID)
+async def admin_panel(message: Message):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="🍔 Все объявления", callback_data="admin_food")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin_close")]
+        ]
     )
+    await message.answer("👑 Админка", reply_markup=keyboard)
+
+@dp.callback_query(lambda c: c.data == "admin_stats" and c.from_user.id == ADMIN_ID)
+async def admin_stats(callback: CallbackQuery):
+    await callback.answer()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    users = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM food")
+    foods = cursor.fetchone()[0]
+    await callback.message.answer(
+        f"📊 Статистика\n\n"
+        f"👤 Пользователей: {users}\n"
+        f"🍔 Объявлений: {foods}"
+    )
+
+@dp.callback_query(lambda c: c.data == "admin_food" and c.from_user.id == ADMIN_ID)
+async def admin_food(callback: CallbackQuery):
+    await callback.answer()
+    admin_feed_index[callback.from_user.id] = 0
+    await show_admin_food(callback)
+
+async def show_admin_food(callback: CallbackQuery):
+    cursor.execute("SELECT id, photo, price, description, location FROM food ORDER BY created_at DESC")
     foods = cursor.fetchall()
 
-    if not foods:
-        await message.answer("📭 У тебя нет объявлений")
+    index = admin_feed_index.get(callback.from_user.id, 0)
+    if index >= len(foods):
+        await callback.message.answer("Нет объявлений")
         return
 
-    for food_id, photo, price, desc, loc in foods:
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete:{food_id}")]
-            ]
-        )
-        await message.answer_photo(
-            photo=photo,
-            caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
-            reply_markup=keyboard
-        )
+    food_id, photo, price, desc, loc = foods[index]
 
-@dp.callback_query(lambda c: c.data.startswith("delete"))
-async def delete_food(callback: CallbackQuery):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="admin_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"admin_delete:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="admin_next")
+            ]
+        ]
+    )
+
+    await callback.message.answer_photo(
+        photo=photo,
+        caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(lambda c: c.data == "admin_next" and c.from_user.id == ADMIN_ID)
+async def admin_next(callback: CallbackQuery):
+    await callback.answer()
+    admin_feed_index[callback.from_user.id] += 1
+    await show_admin_food(callback)
+
+@dp.callback_query(lambda c: c.data == "admin_prev" and c.from_user.id == ADMIN_ID)
+async def admin_prev(callback: CallbackQuery):
+    await callback.answer()
+    admin_feed_index[callback.from_user.id] = max(0, admin_feed_index[callback.from_user.id] - 1)
+    await show_admin_food(callback)
+
+@dp.callback_query(lambda c: c.data.startswith("admin_delete") and c.from_user.id == ADMIN_ID)
+async def admin_delete(callback: CallbackQuery):
     await callback.answer()
     food_id = int(callback.data.split(":")[1])
     cursor.execute("DELETE FROM food WHERE id = ?", (food_id,))
     db.commit()
+    await callback.message.answer("🗑 Объявление удалено")
+
+@dp.callback_query(lambda c: c.data == "admin_close" and c.from_user.id == ADMIN_ID)
+async def admin_close(callback: CallbackQuery):
+    await callback.answer()
     await callback.message.delete()
-
-# ================= ADMIN =================
-@dp.message(lambda m: m.text == "/stats" and m.from_user.id == ADMIN_ID)
-async def stats(message: Message):
-    cursor.execute("SELECT COUNT(*) FROM users")
-    users = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM food")
-    foods = cursor.fetchone()[0]
-
-    since = now() - 86400
-    cursor.execute("SELECT COUNT(*) FROM users WHERE last_active >= ?", (since,))
-    active = cursor.fetchone()[0]
-
-    await message.answer(
-        f"📊 Статистика\n\n"
-        f"👤 Пользователей: {users}\n"
-        f"🟢 Актив за 24ч: {active}\n"
-        f"🍔 Объявлений: {foods}"
-    )
 
 # ================= RUN =================
 async def main():
