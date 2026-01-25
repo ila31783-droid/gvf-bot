@@ -15,8 +15,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 # ================= TOKEN =================
-import os
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+@dp.message(CommandStart())
+async def start(...)
 
 
 # ================= DATABASE =================
