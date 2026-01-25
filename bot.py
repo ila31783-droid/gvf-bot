@@ -17,7 +17,7 @@ from aiogram.fsm.context import FSMContext
 
 # ================= CONFIG =================
 BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
-ADMIN_ID = 123456789  # ← ВСТАВЬ СВОЙ TG ID
+ADMIN_ID = 7204477763  # ← ВСТАВЬ СВОЙ TG ID
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
