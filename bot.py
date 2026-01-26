@@ -56,7 +56,6 @@ user_filters = {}
 # ================= KEYBOARDS =================
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="▶️ Старт")],
         [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
         [KeyboardButton(text="🛠 Услуги")],
         [KeyboardButton(text="📢 Мои объявления")]
@@ -139,15 +138,6 @@ async def start(message: Message):
         reply_markup=main_keyboard
     )
 
-@dp.message(lambda m: m.text == "▶️ Старт")
-async def start_button(message: Message):
-    track_user(message.from_user.id)
-    await message.answer(
-        "👋 Добро пожаловать в ГВФ Маркет 🛒\n\n"
-        "Здесь продают еду, напитки и услуги.\n"
-        "Выбирай, что нужно 👇",
-        reply_markup=main_keyboard
-    )
 
 # ================= FOOD MENU =================
 @dp.message(lambda m: m.text == "🍔 Еда")
@@ -193,9 +183,17 @@ async def add_food(message: Message, state: FSMContext):
 @dp.message(AddFood.photo)
 async def food_photo(message: Message, state: FSMContext):
     if not message.photo:
+        await message.answer(
+            "❌ Нужно отправить именно фото еды 📸",
+            reply_markup=cancel_keyboard
+        )
         return
+
     await state.update_data(photo=message.photo[-1].file_id)
-    await message.answer("💰 Цена?", reply_markup=cancel_keyboard)
+    await message.answer(
+        "💰 Напиши цену (числом)",
+        reply_markup=cancel_keyboard
+    )
     await state.set_state(AddFood.price)
 
 @dp.message(AddFood.price)
