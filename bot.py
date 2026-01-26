@@ -557,13 +557,7 @@ async def admin_delete(callback: CallbackQuery):
     await callback.message.delete()
 
 
-# ================== RUN ==================
-async def main():
-    print("BOT STARTED")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# ================== MODERATION ==================
 admin_moderation_index = {}
 
 @dp.message(lambda m: m.text == "🛂 Модерация")
@@ -640,3 +634,11 @@ async def mod_reject(callback: CallbackQuery):
 
     await callback.answer("❌ Отклонено")
     await callback.message.delete()
+
+# ================== RUN ==================
+async def main():
+    print("BOT STARTED")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
