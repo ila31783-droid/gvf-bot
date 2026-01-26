@@ -116,7 +116,6 @@ async def cancel(message: Message, state: FSMContext):
 async def food_menu(message: Message):
     await message.answer(
         "🍔 Еда из общаг\n\n"
-        "Домашняя еда от студентов.\n"
         "Можно пролистывать и выбирать 👇",
         reply_markup=food_keyboard
     )
@@ -246,9 +245,9 @@ async def show_food(user_id: int, message: Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⬅️", callback_data="food_prev"),
-                InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
-                InlineKeyboardButton(text="➡️", callback_data="food_next")
+                InlineKeyboardButton(text="⬅️ Назад", callback_data="food_prev"),
+                InlineKeyboardButton(text="❤️ Забрать", callback_data=f"like:{food_id}"),
+                InlineKeyboardButton(text="➡️ Дальше", callback_data="food_next")
             ]
         ]
     )
@@ -259,9 +258,9 @@ async def show_food(user_id: int, message: Message):
             f"🍔 Домашняя еда\n"
             f"📍 {current} / {total}\n\n"
             f"🏠 Общежитие: {dorm}\n"
-            f"📍 Место: {loc}\n"
             f"💰 Цена: {price} ₽\n\n"
-            f"📝 Описание:\n{desc}"
+            f"📝 Описание:\n{desc}\n\n"
+            f"❤️ Нажми, чтобы узнать где забрать"
         ),
         reply_markup=keyboard
     )
@@ -298,13 +297,21 @@ async def food_prev(callback: CallbackQuery):
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
 
-    cursor.execute("SELECT user_id, location FROM food WHERE id = ?", (food_id,))
-    seller_id, location = cursor.fetchone()
+    cursor.execute("SELECT user_id, dorm, location FROM food WHERE id = ?", (food_id,))
+    seller_id, dorm, location = cursor.fetchone()
+
+    text = (
+        "✅ Ты выбрал это объявление\n\n"
+        f"🏠 Общежитие: {dorm}\n"
+        f"📍 Где забрать:\n{location}\n\n"
+        "👤 Продавец:\n"
+        f"👉 <a href='tg://user?id={seller_id}'>Написать продавцу</a>"
+    )
 
     await callback.answer()
     await callback.message.answer(
-        f"📍 Где забрать:\n{location}\n\n"
-        f"👤 Продавец: tg://user?id={seller_id}"
+        text,
+        parse_mode="HTML"
     )
 
 
