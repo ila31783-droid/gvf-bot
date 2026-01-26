@@ -74,7 +74,7 @@ cancel_keyboard = ReplyKeyboardMarkup(
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="🧹 Очистить все объявления")],
+        [KeyboardButton(text="🗂 Объявления")],
         [KeyboardButton(text="⬅️ Назад")]
     ],
     resize_keyboard=True
@@ -217,21 +217,28 @@ async def view_food(message: Message):
 
 
 async def show_food(user_id: int, message: Message):
-    cursor.execute("SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC")
+    cursor.execute(
+        "SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC"
+    )
     foods = cursor.fetchall()
 
     index = feed_index.get(user_id, 0)
-    if index >= len(foods):
-        await message.answer("🍽 Еда закончилась")
+    if not foods:
+        await message.answer("📭 Еды пока нет")
         return
+
+    if index >= len(foods):
+        index = 0
+        feed_index[user_id] = 0
 
     food_id, seller_id, photo, price, desc, dorm, loc = foods[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="⬅️", callback_data="food_prev"),
                 InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
-                InlineKeyboardButton(text="👎", callback_data="next_food")
+                InlineKeyboardButton(text="➡️", callback_data="food_next")
             ]
         ]
     )
@@ -240,6 +247,7 @@ async def show_food(user_id: int, message: Message):
         photo=photo,
         caption=(
             f"🏠 Общага {dorm}\n"
+            f"📍 {loc}\n"
             f"💰 {price}\n"
             f"📝 {desc}"
         ),
@@ -247,9 +255,15 @@ async def show_food(user_id: int, message: Message):
     )
 
 
-@dp.callback_query(lambda c: c.data == "next_food")
-async def next_food(callback: CallbackQuery):
+@dp.callback_query(lambda c: c.data == "food_next")
+async def food_next(callback: CallbackQuery):
     feed_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_food(callback.from_user.id, callback.message)
+
+@dp.callback_query(lambda c: c.data == "food_prev")
+async def food_prev(callback: CallbackQuery):
+    feed_index[callback.from_user.id] = max(0, feed_index.get(callback.from_user.id, 0) - 1)
     await callback.message.delete()
     await show_food(callback.from_user.id, callback.message)
 
@@ -377,14 +391,80 @@ async def admin_stats(message: Message):
     )
 
 
-@dp.message(lambda m: m.text == "🧹 Очистить все объявления")
-async def admin_clear(message: Message):
+admin_feed_index = {}
+
+@dp.message(lambda m: m.text == "🗂 Объявления")
+async def admin_ads(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    cursor.execute("DELETE FROM food")
+    admin_feed_index[message.from_user.id] = 0
+    await show_admin_ad(message.from_user.id, message)
+
+
+async def show_admin_ad(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location FROM food ORDER BY id DESC"
+    )
+    ads = cursor.fetchall()
+
+    if not ads:
+        await message.answer("📭 Объявлений нет")
+        return
+
+    index = admin_feed_index.get(user_id, 0)
+    if index >= len(ads):
+        index = 0
+        admin_feed_index[user_id] = 0
+
+    food_id, photo, price, desc, dorm, loc = ads[index]
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="admin_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"admin_delete:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="admin_next")
+            ]
+        ]
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            f"🆔 {food_id}\n"
+            f"🏠 Общага {dorm}\n"
+            f"📍 {loc}\n"
+            f"💰 {price}\n"
+            f"📝 {desc}"
+        ),
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(lambda c: c.data == "admin_next")
+async def admin_next(callback: CallbackQuery):
+    admin_feed_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_admin_ad(callback.from_user.id, callback.message)
+
+@dp.callback_query(lambda c: c.data == "admin_prev")
+async def admin_prev(callback: CallbackQuery):
+    admin_feed_index[callback.from_user.id] = max(0, admin_feed_index.get(callback.from_user.id, 0) - 1)
+    await callback.message.delete()
+    await show_admin_ad(callback.from_user.id, callback.message)
+
+@dp.callback_query(lambda c: c.data.startswith("admin_delete:"))
+async def admin_delete(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+
+    food_id = int(callback.data.split(":")[1])
+    cursor.execute("DELETE FROM food WHERE id = ?", (food_id,))
     db.commit()
-    await message.answer("🧹 Все объявления удалены")
+
+    await callback.answer("🗑 Удалено")
+    await callback.message.delete()
 
 
 # ================== RUN ==================
