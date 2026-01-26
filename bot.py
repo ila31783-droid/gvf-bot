@@ -247,6 +247,11 @@ async def items_menu(message: Message):
         reply_markup=items_keyboard
     )
 
+# Обработчик кнопки "📋 Смотреть вещи"
+@dp.message(lambda m: m.text == "📋 Смотреть вещи")
+async def view_items_entry(message: Message):
+    await view_items(message)
+
 # Рабочие обработчики для добавления и просмотра вещей
 @dp.message(lambda m: m.text == "➕ Добавить вещь")
 async def add_item(message: Message, state: FSMContext):
@@ -472,9 +477,9 @@ async def show_food(user_id: int, message: Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⬅️ Назад", callback_data="food_prev"),
-                InlineKeyboardButton(text="❤️ Забрать", callback_data=f"like:{food_id}"),
-                InlineKeyboardButton(text="➡️ Дальше", callback_data="food_next")
+                InlineKeyboardButton(text="⬅️", callback_data="food_prev"),
+                InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="food_next")
             ]
         ]
     )
@@ -482,13 +487,13 @@ async def show_food(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🍔 Еда\n"
+            f"🍔 Еда из общаг\n"
             f"📍 {current} / {total}\n\n"
             f"🏠 Общежитие: {dorm}\n"
             f"💰 Цена: {price} ₽\n"
             f"👀 Просмотров: {views+1}\n\n"
-            f"📝 Описание:\n{desc}\n\n"
-            f"❤️ Нажми, чтобы узнать где забрать"
+            f"{desc}\n\n"
+            f"❤️ Нажми, чтобы связаться с продавцом"
         ),
         reply_markup=keyboard
     )
@@ -502,6 +507,11 @@ async def food_next(callback: CallbackQuery):
         chat_id=callback.from_user.id,
         action=ChatAction.UPLOAD_PHOTO
     )
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.TYPING
+    )
+    await asyncio.sleep(0.2)
 
     await callback.message.delete()
     await show_food(callback.from_user.id, callback.message)
@@ -516,6 +526,11 @@ async def food_prev(callback: CallbackQuery):
         chat_id=callback.from_user.id,
         action=ChatAction.UPLOAD_PHOTO
     )
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.TYPING
+    )
+    await asyncio.sleep(0.2)
 
     await callback.message.delete()
     await show_food(callback.from_user.id, callback.message)
@@ -539,8 +554,10 @@ async def like_food(callback: CallbackQuery):
 
     seller_id, dorm, location, username = row
 
+    await callback.answer("❤️ Отличный выбор!")
+
     text = (
-        "✅ Ты выбрал это объявление\n\n"
+        "❤️ Отличный выбор!\n\n"
         f"🏠 Общежитие: {dorm}\n"
         f"📍 Где забрать:\n{location}\n\n"
         "👤 Продавец:\n"
@@ -551,17 +568,15 @@ async def like_food(callback: CallbackQuery):
     else:
         text += "❌ Продавец не указал username"
 
-    # уведомление продавцу
     try:
         await bot.send_message(
             seller_id,
             "❤️ Твоё объявление понравилось!\n"
             "Зайди в бота — возможно, с тобой хотят связаться 👀"
         )
-    except:
+    except Exception:
         pass
 
-    await callback.answer()
     await callback.message.answer(text, parse_mode="HTML")
 
 
@@ -569,19 +584,25 @@ async def like_food(callback: CallbackQuery):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id FROM food WHERE user_id = ?",
+        "SELECT COUNT(*) FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
-    food_exists = cursor.fetchone()
+    food_count = cursor.fetchone()[0]
 
     cursor.execute(
-        "SELECT id FROM items WHERE user_id = ?",
+        "SELECT COUNT(*) FROM items WHERE user_id = ?",
         (message.from_user.id,)
     )
-    item_exists = cursor.fetchone()
+    items_count = cursor.fetchone()[0]
 
-    if not food_exists and not item_exists:
-        await message.answer("📭 У тебя нет объявлений")
+    if food_count == 0 and items_count == 0:
+        await message.answer(
+            "📭 У тебя пока нет объявлений.\n\n"
+            "Ты можешь добавить:\n"
+            "🍔 еду из общаг\n"
+            "📦 вещи",
+            reply_markup=main_keyboard
+        )
         return
 
     keyboard = ReplyKeyboardMarkup(
@@ -1031,7 +1052,7 @@ async def show_item(user_id: int, message: Message):
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="⬅️", callback_data="item_prev"),
-                InlineKeyboardButton(text="❤️ Связаться", callback_data=f"item_like:{item_id}"),
+                InlineKeyboardButton(text="❤️", callback_data=f"item_like:{item_id}"),
                 InlineKeyboardButton(text="➡️", callback_data="item_next")
             ]
         ]
@@ -1040,11 +1061,11 @@ async def show_item(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"📦 Барахолка Маркет\n"
+            f"📦 Барахолка\n"
             f"📍 {current} / {total}\n\n"
-            f"🏠 Общага: {dorm}\n"
+            f"🏠 Общежитие: {dorm}\n"
             f"💰 Цена: {price}\n\n"
-            f"📝 {desc}\n\n"
+            f"{desc}\n\n"
             f"❤️ Нажми, чтобы связаться с продавцом"
         ),
         reply_markup=keyboard
@@ -1054,6 +1075,11 @@ async def show_item(user_id: int, message: Message):
 @dp.callback_query(lambda c: c.data == "item_next")
 async def item_next(callback: CallbackQuery):
     items_feed_index[callback.from_user.id] += 1
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.TYPING
+    )
+    await asyncio.sleep(0.2)
     await callback.message.delete()
     await show_item(callback.from_user.id, callback.message)
 
@@ -1063,6 +1089,11 @@ async def item_prev(callback: CallbackQuery):
     items_feed_index[callback.from_user.id] = max(
         0, items_feed_index.get(callback.from_user.id, 0) - 1
     )
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.TYPING
+    )
+    await asyncio.sleep(0.2)
     await callback.message.delete()
     await show_item(callback.from_user.id, callback.message)
 
@@ -1197,6 +1228,19 @@ async def profile(message: Message):
     await message.answer(
         "👤 Твой профиль\n\n"
         f"📞 Контакт: {'привязан' if phone else 'не привязан'}\n"
-        f"🕒 В боте с: {first_seen_text}",
+        f"🕒 В боте с: {first_seen_text}\n\n"
+        "Здесь скоро появятся:\n"
+        "⭐ рейтинг\n"
+        "📊 статистика",
+        reply_markup=main_keyboard
+    )
+
+# Обработчик кнопки "📚 Учёба (скоро)"
+@dp.message(lambda m: m.text == "📚 Учёба (скоро)")
+async def study_soon(message: Message):
+    await message.answer(
+        "📚 Раздел «Учёба»\n\n"
+        "Скоро здесь появятся конспекты,\n"
+        "помощь с заданиями и услуги 👀",
         reply_markup=main_keyboard
     )
