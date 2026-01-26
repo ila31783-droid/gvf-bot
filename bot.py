@@ -11,6 +11,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     CallbackQuery
 )
+from aiogram.enums import ChatAction
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -94,9 +95,11 @@ class AddFood(StatesGroup):
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
-        "👋 Добро пожаловать в **ГВФ Маркет**\n\n"
-        "Здесь студенты продают еду и помогают друг другу.\n\n"
-        "Выбирай раздел 👇",
+        "👋 Добро пожаловать в ГВФ Маркет\n\n"
+        "🍔 Еда из общаг\n"
+        "📚 Помощь с учёбой\n"
+        "🛠 Разные услуги\n\n"
+        "Выбирай, что тебе нужно 👇",
         reply_markup=main_keyboard
     )
 
@@ -111,7 +114,12 @@ async def cancel(message: Message, state: FSMContext):
 # ================== MENU ==================
 @dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
-    await message.answer("🍔 Раздел еды", reply_markup=food_keyboard)
+    await message.answer(
+        "🍔 Еда из общаг\n\n"
+        "Домашняя еда от студентов.\n"
+        "Можно пролистывать и выбирать 👇",
+        reply_markup=food_keyboard
+    )
 
 
 @dp.message(lambda m: m.text == "⬅️ Назад")
@@ -232,6 +240,8 @@ async def show_food(user_id: int, message: Message):
         feed_index[user_id] = 0
 
     food_id, seller_id, photo, price, desc, dorm, loc = foods[index]
+    total = len(foods)
+    current = index + 1
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -246,10 +256,12 @@ async def show_food(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🏠 Общага {dorm}\n"
-            f"📍 {loc}\n"
-            f"💰 {price}\n"
-            f"📝 {desc}"
+            f"🍔 Домашняя еда\n"
+            f"📍 {current} / {total}\n\n"
+            f"🏠 Общежитие: {dorm}\n"
+            f"📍 Место: {loc}\n"
+            f"💰 Цена: {price} ₽\n\n"
+            f"📝 Описание:\n{desc}"
         ),
         reply_markup=keyboard
     )
@@ -258,12 +270,26 @@ async def show_food(user_id: int, message: Message):
 @dp.callback_query(lambda c: c.data == "food_next")
 async def food_next(callback: CallbackQuery):
     feed_index[callback.from_user.id] += 1
+
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
+
     await callback.message.delete()
     await show_food(callback.from_user.id, callback.message)
 
 @dp.callback_query(lambda c: c.data == "food_prev")
 async def food_prev(callback: CallbackQuery):
-    feed_index[callback.from_user.id] = max(0, feed_index.get(callback.from_user.id, 0) - 1)
+    feed_index[callback.from_user.id] = max(
+        0, feed_index.get(callback.from_user.id, 0) - 1
+    )
+
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
+
     await callback.message.delete()
     await show_food(callback.from_user.id, callback.message)
 
@@ -308,10 +334,12 @@ async def show_my_ad(user_id: int, message: Message):
 
     index = my_ads_index.get(user_id, 0)
     if index >= len(ads):
-        await message.answer("📭 Объявления закончились")
-        return
+        index = 0
+        my_ads_index[user_id] = 0
 
     food_id, photo, price, desc, dorm, loc = ads[index]
+    total = len(ads)
+    current = index + 1
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -326,10 +354,12 @@ async def show_my_ad(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🏠 Общага {dorm}\n"
-            f"💰 {price}\n"
-            f"📝 {desc}\n"
-            f"📍 {loc}"
+            f"📢 Моё объявление\n"
+            f"📍 {current} / {total}\n\n"
+            f"🏠 Общежитие: {dorm}\n"
+            f"📍 Место: {loc}\n"
+            f"💰 Цена: {price} ₽\n\n"
+            f"📝 Описание:\n{desc}"
         ),
         reply_markup=keyboard
     )
@@ -338,13 +368,27 @@ async def show_my_ad(user_id: int, message: Message):
 @dp.callback_query(lambda c: c.data == "my_next")
 async def my_next(callback: CallbackQuery):
     my_ads_index[callback.from_user.id] += 1
+
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
+
     await callback.message.delete()
     await show_my_ad(callback.from_user.id, callback.message)
 
 
 @dp.callback_query(lambda c: c.data == "my_prev")
 async def my_prev(callback: CallbackQuery):
-    my_ads_index[callback.from_user.id] = max(0, my_ads_index[callback.from_user.id] - 1)
+    my_ads_index[callback.from_user.id] = max(
+        0, my_ads_index[callback.from_user.id] - 1
+    )
+
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
+
     await callback.message.delete()
     await show_my_ad(callback.from_user.id, callback.message)
 
@@ -418,6 +462,8 @@ async def show_admin_ad(user_id: int, message: Message):
         admin_feed_index[user_id] = 0
 
     food_id, photo, price, desc, dorm, loc = ads[index]
+    total = len(ads)
+    current = index + 1
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -432,11 +478,12 @@ async def show_admin_ad(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🆔 {food_id}\n"
-            f"🏠 Общага {dorm}\n"
-            f"📍 {loc}\n"
-            f"💰 {price}\n"
-            f"📝 {desc}"
+            f"🆔 ID: {food_id}\n"
+            f"📍 {current} / {total}\n\n"
+            f"🏠 Общежитие: {dorm}\n"
+            f"📍 Место: {loc}\n"
+            f"💰 Цена: {price} ₽\n\n"
+            f"📝 Описание:\n{desc}"
         ),
         reply_markup=keyboard
     )
@@ -444,12 +491,20 @@ async def show_admin_ad(user_id: int, message: Message):
 
 @dp.callback_query(lambda c: c.data == "admin_next")
 async def admin_next(callback: CallbackQuery):
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
     admin_feed_index[callback.from_user.id] += 1
     await callback.message.delete()
     await show_admin_ad(callback.from_user.id, callback.message)
 
 @dp.callback_query(lambda c: c.data == "admin_prev")
 async def admin_prev(callback: CallbackQuery):
+    await callback.message.bot.send_chat_action(
+        chat_id=callback.from_user.id,
+        action=ChatAction.UPLOAD_PHOTO
+    )
     admin_feed_index[callback.from_user.id] = max(0, admin_feed_index.get(callback.from_user.id, 0) - 1)
     await callback.message.delete()
     await show_admin_ad(callback.from_user.id, callback.message)
