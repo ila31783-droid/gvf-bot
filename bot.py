@@ -110,6 +110,7 @@ admin_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="🗂 Объявления")],
         [KeyboardButton(text="🛂 Модерация")],
+        [KeyboardButton(text="📣 Рассылка")],
         [KeyboardButton(text="⬅️ Назад")]
     ],
     resize_keyboard=True
@@ -123,6 +124,11 @@ class AddFood(StatesGroup):
     description = State()
     dorm = State()
     location = State()
+
+
+# ================== BROADCAST FSM ==================
+class Broadcast(StatesGroup):
+    text = State()
 
 
 # ================== START ==================
@@ -573,6 +579,51 @@ async def admin(message: Message):
         return
 
     await message.answer("🔐 Админка", reply_markup=admin_keyboard)
+
+
+# ================== ADMIN BROADCAST ==================
+@dp.message(lambda m: m.text == "📣 Рассылка")
+async def start_broadcast(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    await message.answer(
+        "📣 Введи текст рассылки\n\n"
+        "❌ Отмена — чтобы выйти",
+        reply_markup=cancel_keyboard
+    )
+    await state.set_state(Broadcast.text)
+
+
+@dp.message(Broadcast.text)
+async def send_broadcast(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    text = message.text
+
+    cursor.execute("SELECT user_id FROM users")
+    users = cursor.fetchall()
+
+    sent = 0
+    failed = 0
+
+    for (user_id,) in users:
+        try:
+            await bot.send_message(user_id, text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except:
+            failed += 1
+
+    await state.clear()
+
+    await message.answer(
+        f"✅ Рассылка завершена\n\n"
+        f"📨 Отправлено: {sent}\n"
+        f"⚠️ Ошибок: {failed}",
+        reply_markup=admin_keyboard
+    )
 
 
 @dp.message(lambda m: m.text == "📊 Статистика")
