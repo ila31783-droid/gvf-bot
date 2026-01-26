@@ -63,7 +63,8 @@ main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
         [KeyboardButton(text="🛠 Услуги")],
-        [KeyboardButton(text="📢 Мои объявления")]
+        [KeyboardButton(text="📢 Мои объявления")],
+        [KeyboardButton(text="📱 Обновить контакт")]
     ],
     resize_keyboard=True
 )
@@ -167,6 +168,14 @@ async def cancel(message: Message, state: FSMContext):
 
 
 # ================== MENU ==================
+
+# Обработчик кнопки "Обновить контакт"
+@dp.message(lambda m: m.text == "📱 Обновить контакт")
+async def update_contact(message: Message):
+    await message.answer(
+        "📱 Обнови контакт, чтобы с тобой могли связаться 👇",
+        reply_markup=contact_keyboard
+    )
 @dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
     await message.answer(
