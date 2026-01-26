@@ -1,9 +1,7 @@
 import asyncio
 import sqlite3
-import time
 
 from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
@@ -15,10 +13,10 @@ from aiogram.types import (
 )
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 
-# ================= CONFIG =================
-BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"   # ← ВСТАВЬ ТОКЕН
-ADMIN_ID = 7204477763                  # ← ВСТАВЬ СВОЙ TG ID
+# ================= TOKEN =================
+BOT_TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -28,37 +26,22 @@ db = sqlite3.connect("database.db")
 cursor = db.cursor()
 
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    last_active INTEGER
-)
-""")
-
-cursor.execute("""
 CREATE TABLE IF NOT EXISTS food (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
     photo TEXT,
-    price INTEGER,
+    price TEXT,
     description TEXT,
     dorm INTEGER,
-    location TEXT,
-    created_at INTEGER
+    location TEXT
 )
 """)
 db.commit()
 
-# ================= MEMORY =================
-user_feed_index = {}
-admin_feed_index = {}
-user_filters = {}
-user_ads_index = {}
-
 # ================= KEYBOARDS =================
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
-        [KeyboardButton(text="🛠 Услуги")],
+        [KeyboardButton(text="🍔 Еда")],
         [KeyboardButton(text="📢 Мои объявления")]
     ],
     resize_keyboard=True
@@ -68,20 +51,6 @@ food_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Добавить еду")],
         [KeyboardButton(text="📋 Смотреть еду")],
-        [KeyboardButton(text="🏠 Фильтр по общаге")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ],
-    resize_keyboard=True
-)
-
-filter_dorm_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="Общага 3"),
-            KeyboardButton(text="Общага 4"),
-            KeyboardButton(text="Общага 5")
-        ],
-        [KeyboardButton(text="❌ Сброс фильтров")],
         [KeyboardButton(text="⬅️ Назад")]
     ],
     resize_keyboard=True
@@ -100,68 +69,30 @@ class AddFood(StatesGroup):
     dorm = State()
     location = State()
 
-# ================= HELPERS =================
-def now():
-    return int(time.time())
-
-def track_user(user_id: int):
-    cursor.execute(
-        "INSERT OR REPLACE INTO users (user_id, last_active) VALUES (?, ?)",
-        (user_id, now())
-    )
-    db.commit()
-
-# ================= GLOBAL CANCEL =================
-@dp.message(lambda m: m.text == "❌ Отмена")
-async def cancel_action(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Добавление отменено", reply_markup=main_keyboard)
-
 # ================= START =================
 @dp.message(CommandStart())
 async def start(message: Message):
-    track_user(message.from_user.id)
     await message.answer(
-        "👋 Добро пожаловать в ГВФ Маркет 🛒\n\n"
-        "Здесь продают еду, напитки и услуги.\n"
-        "Выбирай, что нужно 👇",
+        "👋 Добро пожаловать в ГВФ Маркет\n\n"
+        "Здесь продают еду из общаги\n\n"
+        "Выбирай действие 👇",
         reply_markup=main_keyboard
     )
 
+# ================= CANCEL =================
+@dp.message(lambda m: m.text == "❌ Отмена")
+async def cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
 
 # ================= FOOD MENU =================
 @dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
     await message.answer("🍔 Раздел еды", reply_markup=food_keyboard)
 
-@dp.message(lambda m: m.text == "📚 Учёба")
-async def study_soon(message: Message):
-    await message.answer("📚 Раздел «Учёба»\n\nСкоро появится 👀", reply_markup=main_keyboard)
-
-@dp.message(lambda m: m.text == "🛠 Услуги")
-async def services_soon(message: Message):
-    await message.answer("🛠 Раздел «Услуги»\n\nСкоро появится 👀", reply_markup=main_keyboard)
-
 @dp.message(lambda m: m.text == "⬅️ Назад")
 async def back(message: Message):
     await message.answer("Главное меню", reply_markup=main_keyboard)
-
-@dp.message(lambda m: m.text == "🏠 Фильтр по общаге")
-async def filter_by_dorm(message: Message):
-    await message.answer("🏠 Выбери общагу", reply_markup=filter_dorm_keyboard)
-
-@dp.message(lambda m: m.text and m.text.startswith("Общага"))
-async def apply_dorm_filter(message: Message):
-    dorm = int(message.text.split()[-1])
-    if dorm not in [3, 4, 5]:
-        return
-    user_filters.setdefault(message.from_user.id, {})["dorm"] = dorm
-    await message.answer(f"✅ Фильтр: общага {dorm}", reply_markup=food_keyboard)
-
-@dp.message(lambda m: m.text == "❌ Сброс фильтров")
-async def reset_filters(message: Message):
-    user_filters.pop(message.from_user.id, None)
-    await message.answer("❌ Фильтры сброшены", reply_markup=food_keyboard)
 
 # ================= ADD FOOD =================
 @dp.message(lambda m: m.text == "➕ Добавить еду")
@@ -170,187 +101,121 @@ async def add_food(message: Message, state: FSMContext):
     await state.set_state(AddFood.photo)
 
 @dp.message(AddFood.photo)
-async def food_photo(message: Message, state: FSMContext):
+async def add_photo(message: Message, state: FSMContext):
     if not message.photo:
-        await message.answer(
-            "❌ Нужно отправить именно фото еды 📸",
-            reply_markup=cancel_keyboard
-        )
+        await message.answer("❌ Нужно отправить фото", reply_markup=cancel_keyboard)
         return
 
     await state.update_data(photo=message.photo[-1].file_id)
-    await message.answer(
-        "💰 Напиши цену (числом)",
-        reply_markup=cancel_keyboard
-    )
+    await message.answer("💰 Напиши цену", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.price)
 
 @dp.message(AddFood.price)
-async def food_price(message: Message, state: FSMContext):
-    if not message.text.isdigit():
-        return
-    await state.update_data(price=int(message.text))
-    await message.answer("📝 Описание", reply_markup=cancel_keyboard)
+async def add_price(message: Message, state: FSMContext):
+    await state.update_data(price=message.text)
+    await message.answer("📝 Напиши описание", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.description)
 
 @dp.message(AddFood.description)
-async def food_desc(message: Message, state: FSMContext):
+async def add_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await message.answer("🏠 Номер общаги (3–5)", reply_markup=cancel_keyboard)
+    await message.answer("🏠 Номер общаги (3, 4 или 5)", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.dorm)
 
 @dp.message(AddFood.dorm)
-async def food_dorm(message: Message, state: FSMContext):
-    if not message.text or not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
-        await message.answer("❌ Введи номер общаги: 3, 4 или 5")
+async def add_dorm(message: Message, state: FSMContext):
+    if not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
+        await message.answer("❌ Введи 3, 4 или 5", reply_markup=cancel_keyboard)
         return
 
     await state.update_data(dorm=int(message.text))
-    await message.answer("📍 Этаж и комната", reply_markup=cancel_keyboard)
+    await message.answer("📍 Этаж и комната\nНапример: 5 этаж 213", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.location)
 
 @dp.message(AddFood.location)
-async def food_finish(message: Message, state: FSMContext):
+async def add_location(message: Message, state: FSMContext):
     data = await state.get_data()
+
     cursor.execute(
-        "INSERT INTO food VALUES (NULL,?,?,?,?,?,?)",
+        "INSERT INTO food (user_id, photo, price, description, dorm, location) VALUES (?, ?, ?, ?, ?, ?)",
         (
             message.from_user.id,
             data["photo"],
             data["price"],
             data["description"],
             data["dorm"],
-            message.text,
-            now()
+            message.text
         )
     )
     db.commit()
+
     await state.clear()
     await message.answer("✅ Еда добавлена", reply_markup=main_keyboard)
 
+# ================= VIEW FOOD =================
+@dp.message(lambda m: m.text == "📋 Смотреть еду")
+async def view_food(message: Message):
+    cursor.execute("SELECT photo, price, description, dorm, location FROM food ORDER BY id DESC")
+    foods = cursor.fetchall()
+
+    if not foods:
+        await message.answer("📭 Еды пока нет")
+        return
+
+    for food_id, photo, price, desc, dorm, loc in cursor.execute(
+        "SELECT id, photo, price, description, dorm, location FROM food ORDER BY id DESC"
+    ):
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✉️ Написать продавцу",
+                        url=f"https://t.me/{message.from_user.username}"
+                    )
+                ]
+            ]
+        )
+
+        await message.answer_photo(
+            photo=photo,
+            caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}\n📍 {loc}",
+            reply_markup=keyboard
+        )
+
+# ================= MY ADS =================
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
     ads = cursor.fetchall()
 
     if not ads:
-        await message.answer("📭 У тебя пока нет объявлений.", reply_markup=main_keyboard)
+        await message.answer("📭 У тебя нет объявлений")
         return
 
-    user_ads_index[message.from_user.id] = 0
-    await show_my_ad(message.from_user.id, message)
-
-async def show_my_ad(user_id: int, message: Message):
-    cursor.execute(
-        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
-        (user_id,)
-    )
-    ads = cursor.fetchall()
-
-    index = user_ads_index.get(user_id, 0)
-    if index >= len(ads):
-        await message.answer("📭 Объявления закончились", reply_markup=main_keyboard)
-        return
-
-    food_id, photo, price, desc, dorm, loc = ads[index]
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⬅️", callback_data="my_prev"),
-                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_my:{food_id}"),
-                InlineKeyboardButton(text="➡️", callback_data="my_next")
+    for food_id, photo, price, desc, dorm, loc in ads:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🗑 Удалить",
+                        callback_data=f"delete:{food_id}"
+                    )
+                ]
             ]
-        ]
-    )
+        )
 
-    await message.answer_photo(
-        photo=photo,
-        caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}\n📍 {loc}",
-        reply_markup=keyboard
-    )
+        await message.answer_photo(
+            photo=photo,
+            caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}\n📍 {loc}",
+            reply_markup=keyboard
+        )
 
-# ================= VIEW FOOD =================
-@dp.message(lambda m: m.text == "📋 Смотреть еду")
-async def view_food(message: Message):
-    user_feed_index[message.from_user.id] = 0
-    await show_food(message.from_user.id, message)
-
-async def show_food(user_id, message):
-    filters = user_filters.get(user_id, {})
-    query = "SELECT id, photo, price, description, dorm, location FROM food"
-    params = []
-
-    if "dorm" in filters:
-        query += " WHERE dorm = ?"
-        params.append(filters["dorm"])
-
-    query += " ORDER BY created_at DESC"
-    cursor.execute(query, params)
-    foods = cursor.fetchall()
-
-    index = user_feed_index.get(user_id, 0)
-    if index >= len(foods):
-        await message.answer("🍽 Еда закончилась", reply_markup=food_keyboard)
-        return
-
-    food_id, photo, price, desc, dorm, loc = foods[index]
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⬅️", callback_data="prev"),
-                InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
-                InlineKeyboardButton(text="➡️", callback_data="next")
-            ]
-        ]
-    )
-
-    await message.answer_photo(
-        photo=photo,
-        caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}",
-        reply_markup=keyboard
-    )
-
-@dp.callback_query(lambda c: c.data == "next")
-async def next_food(callback: CallbackQuery):
-    user_feed_index[callback.from_user.id] += 1
-    await callback.message.delete()
-    await show_food(callback.from_user.id, callback.message)
-
-@dp.callback_query(lambda c: c.data == "prev")
-async def prev_food(callback: CallbackQuery):
-    user_feed_index[callback.from_user.id] = max(0, user_feed_index[callback.from_user.id] - 1)
-    await callback.message.delete()
-    await show_food(callback.from_user.id, callback.message)
-
-@dp.callback_query(lambda c: c.data.startswith("like"))
-async def like_food(callback: CallbackQuery):
-    food_id = int(callback.data.split(":")[1])
-    cursor.execute("SELECT location, user_id FROM food WHERE id = ?", (food_id,))
-    loc, seller = cursor.fetchone()
-    await callback.message.answer(
-        f"📍 Где забрать:\n{loc}\n\n"
-        f"👤 Продавец:\nhttps://t.me/user?id={seller}"
-    )
-
-@dp.callback_query(lambda c: c.data == "my_next")
-async def my_next_ad(callback: CallbackQuery):
-    user_ads_index[callback.from_user.id] += 1
-    await callback.message.delete()
-    await show_my_ad(callback.from_user.id, callback.message)
-
-@dp.callback_query(lambda c: c.data == "my_prev")
-async def my_prev_ad(callback: CallbackQuery):
-    user_ads_index[callback.from_user.id] = max(0, user_ads_index[callback.from_user.id] - 1)
-    await callback.message.delete()
-    await show_my_ad(callback.from_user.id, callback.message)
-
-@dp.callback_query(lambda c: c.data.startswith("delete_my"))
-async def delete_my_ad(callback: CallbackQuery):
+# ================= DELETE HANDLER =================
+@dp.callback_query(lambda c: c.data.startswith("delete:"))
+async def delete_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
 
     cursor.execute(
@@ -359,8 +224,8 @@ async def delete_my_ad(callback: CallbackQuery):
     )
     db.commit()
 
-    await callback.answer("🗑 Объявление удалено")
     await callback.message.delete()
+    await callback.answer("🗑 Удалено")
 
 # ================= RUN =================
 async def main():
