@@ -422,31 +422,6 @@ async def like_food(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(text, parse_mode="HTML")
 
-    cursor.execute(
-        "SELECT food.user_id, food.dorm, food.location, users.username, users.phone "
-        "FROM food JOIN users ON food.user_id = users.user_id "
-        "WHERE food.id = ?",
-        (food_id,)
-    )
-    seller_id, dorm, location, username, phone = cursor.fetchone()
-
-    text = (
-        "✅ Ты выбрал это объявление\n\n"
-        f"🏠 Общежитие: {dorm}\n"
-        f"📍 Где забрать:\n{location}\n\n"
-        "👤 Продавец:\n"
-    )
-    if username:
-        text += f"👉 <a href='https://t.me/{username}'>Написать в Telegram</a>\n"
-    if phone:
-        text += f"📱 Телефон: {phone}"
-
-    await callback.answer()
-    await callback.message.answer(
-        text,
-        parse_mode="HTML"
-    )
-
 
 # ================== MY ADS ==================
 @dp.message(lambda m: m.text == "📢 Мои объявления")
