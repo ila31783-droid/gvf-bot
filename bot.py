@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS food (
     price INTEGER,
     description TEXT,
     dorm INTEGER,
-    food_type TEXT,
     location TEXT,
     created_at INTEGER
 )
@@ -69,7 +68,7 @@ food_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Добавить еду")],
         [KeyboardButton(text="📋 Смотреть еду")],
-        [KeyboardButton(text="🏠 Фильтр по общаге"), KeyboardButton(text="🍽 Фильтр по типу")],
+        [KeyboardButton(text="🏠 Фильтр по общаге")],
         [KeyboardButton(text="⬅️ Назад")]
     ],
     resize_keyboard=True
@@ -88,16 +87,6 @@ filter_dorm_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-filter_type_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="домашнее"), KeyboardButton(text="сладкое")],
-        [KeyboardButton(text="полуфабрикаты"), KeyboardButton(text="напитки")],
-        [KeyboardButton(text="❌ Сброс фильтров")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ],
-    resize_keyboard=True
-)
-
 cancel_keyboard = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="❌ Отмена")]],
     resize_keyboard=True
@@ -109,7 +98,6 @@ class AddFood(StatesGroup):
     price = State()
     description = State()
     dorm = State()
-    food_type = State()
     location = State()
 
 # ================= HELPERS =================
@@ -162,10 +150,6 @@ async def back(message: Message):
 async def filter_by_dorm(message: Message):
     await message.answer("🏠 Выбери общагу", reply_markup=filter_dorm_keyboard)
 
-@dp.message(lambda m: m.text == "🍽 Фильтр по типу")
-async def filter_by_type(message: Message):
-    await message.answer("🍽 Выбери тип еды", reply_markup=filter_type_keyboard)
-
 @dp.message(lambda m: m.text and m.text.startswith("Общага"))
 async def apply_dorm_filter(message: Message):
     dorm = int(message.text.split()[-1])
@@ -173,11 +157,6 @@ async def apply_dorm_filter(message: Message):
         return
     user_filters.setdefault(message.from_user.id, {})["dorm"] = dorm
     await message.answer(f"✅ Фильтр: общага {dorm}", reply_markup=food_keyboard)
-
-@dp.message(lambda m: m.text in ["домашнее", "сладкое", "полуфабрикаты", "напитки"])
-async def apply_type_filter(message: Message):
-    user_filters.setdefault(message.from_user.id, {})["food_type"] = message.text
-    await message.answer(f"✅ Фильтр: {message.text}", reply_markup=food_keyboard)
 
 @dp.message(lambda m: m.text == "❌ Сброс фильтров")
 async def reset_filters(message: Message):
@@ -225,19 +204,8 @@ async def food_dorm(message: Message, state: FSMContext):
     if not message.text or not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
         await message.answer("❌ Введи номер общаги: 3, 4 или 5")
         return
-    await state.update_data(dorm=int(message.text))
-    await message.answer(
-        "🍽 Тип еды?\n"
-        "домашнее / сладкое / полуфабрикаты / напитки",
-        reply_markup=cancel_keyboard
-    )
-    await state.set_state(AddFood.food_type)
 
-@dp.message(AddFood.food_type)
-async def food_type(message: Message, state: FSMContext):
-    if message.text.lower() not in ["домашнее","сладкое","полуфабрикаты","напитки"]:
-        return
-    await state.update_data(food_type=message.text.lower())
+    await state.update_data(dorm=int(message.text))
     await message.answer("📍 Этаж и комната", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.location)
 
@@ -245,14 +213,13 @@ async def food_type(message: Message, state: FSMContext):
 async def food_finish(message: Message, state: FSMContext):
     data = await state.get_data()
     cursor.execute(
-        "INSERT INTO food VALUES (NULL,?,?,?,?,?,?,?,?)",
+        "INSERT INTO food VALUES (NULL,?,?,?,?,?,?)",
         (
             message.from_user.id,
             data["photo"],
             data["price"],
             data["description"],
             data["dorm"],
-            data["food_type"],
             message.text,
             now()
         )
@@ -264,7 +231,7 @@ async def food_finish(message: Message, state: FSMContext):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, food_type, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
         (message.from_user.id,)
     )
     ads = cursor.fetchall()
@@ -278,7 +245,7 @@ async def my_ads(message: Message):
 
 async def show_my_ad(user_id: int, message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, food_type, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
         (user_id,)
     )
     ads = cursor.fetchall()
@@ -288,7 +255,7 @@ async def show_my_ad(user_id: int, message: Message):
         await message.answer("📭 Объявления закончились", reply_markup=main_keyboard)
         return
 
-    food_id, photo, price, desc, dorm, food_type, loc = ads[index]
+    food_id, photo, price, desc, dorm, loc = ads[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -302,7 +269,7 @@ async def show_my_ad(user_id: int, message: Message):
 
     await message.answer_photo(
         photo=photo,
-        caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {desc}\n📍 {loc}",
+        caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}\n📍 {loc}",
         reply_markup=keyboard
     )
 
@@ -314,15 +281,12 @@ async def view_food(message: Message):
 
 async def show_food(user_id, message):
     filters = user_filters.get(user_id, {})
-    query = "SELECT id, photo, price, description, dorm, food_type, location FROM food"
+    query = "SELECT id, photo, price, description, dorm, location FROM food"
     params = []
 
     if "dorm" in filters:
         query += " WHERE dorm = ?"
         params.append(filters["dorm"])
-    if "food_type" in filters:
-        query += " AND food_type = ?" if "WHERE" in query else " WHERE food_type = ?"
-        params.append(filters["food_type"])
 
     query += " ORDER BY created_at DESC"
     cursor.execute(query, params)
@@ -333,7 +297,7 @@ async def show_food(user_id, message):
         await message.answer("🍽 Еда закончилась", reply_markup=food_keyboard)
         return
 
-    food_id, photo, price, desc, dorm, food_type, loc = foods[index]
+    food_id, photo, price, desc, dorm, loc = foods[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -347,7 +311,7 @@ async def show_food(user_id, message):
 
     await message.answer_photo(
         photo=photo,
-        caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {desc}",
+        caption=f"🏠 Общага {dorm}\n💰 {price}\n📝 {desc}",
         reply_markup=keyboard
     )
 
