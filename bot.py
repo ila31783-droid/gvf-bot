@@ -166,10 +166,10 @@ async def filter_by_dorm(message: Message):
 async def filter_by_type(message: Message):
     await message.answer("🍽 Выбери тип еды", reply_markup=filter_type_keyboard)
 
-@dp.message(lambda m: m.text.startswith("Общага"))
+@dp.message(lambda m: m.text and m.text.startswith("Общага"))
 async def apply_dorm_filter(message: Message):
     dorm = int(message.text.split()[-1])
-    if dorm not in [1, 2, 3]:
+    if dorm not in [3, 4, 5]:
         return
     user_filters.setdefault(message.from_user.id, {})["dorm"] = dorm
     await message.answer(f"✅ Фильтр: общага {dorm}", reply_markup=food_keyboard)
@@ -217,12 +217,13 @@ async def food_price(message: Message, state: FSMContext):
 @dp.message(AddFood.description)
 async def food_desc(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await message.answer("🏠 Номер общаги (1–3)", reply_markup=cancel_keyboard)
+    await message.answer("🏠 Номер общаги (3–5)", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.dorm)
 
 @dp.message(AddFood.dorm)
 async def food_dorm(message: Message, state: FSMContext):
-    if not message.text.isdigit() or int(message.text) not in [3,4,5]:
+    if not message.text or not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
+        await message.answer("❌ Введи номер общаги: 3, 4 или 5")
         return
     await state.update_data(dorm=int(message.text))
     await message.answer(
