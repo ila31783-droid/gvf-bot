@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
@@ -26,7 +27,11 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 # ================== DATABASE ==================
-db = sqlite3.connect("/data/database.db")
+DB_PATH = "/data/database.db"
+
+os.makedirs("/data", exist_ok=True)
+
+db = sqlite3.connect(DB_PATH)
 cursor = db.cursor()
 
 
@@ -47,7 +52,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
-    phone TEXT
+    phone TEXT,
+    first_seen INTEGER
 )
 """)
 cursor.execute("""
@@ -122,6 +128,23 @@ class AddFood(StatesGroup):
 # ================== START ==================
 @dp.message(CommandStart())
 async def start(message: Message):
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    exists = cursor.fetchone()
+
+    if not exists:
+        cursor.execute(
+            "INSERT INTO users (user_id, username, first_seen) VALUES (?, ?, ?)",
+            (
+                message.from_user.id,
+                message.from_user.username,
+                int(asyncio.get_event_loop().time())
+            )
+        )
+        db.commit()
+
     cursor.execute(
         "SELECT user_id FROM users WHERE user_id = ?",
         (message.from_user.id,)
@@ -563,10 +586,22 @@ async def admin_stats(message: Message):
     cursor.execute("SELECT COUNT(DISTINCT user_id) FROM food")
     users = cursor.fetchone()[0]
 
+    cursor.execute(
+        "SELECT MIN(first_seen) FROM users"
+    )
+    first_seen = cursor.fetchone()[0]
+
+    from datetime import datetime
+    first_seen_text = (
+        datetime.fromtimestamp(first_seen).strftime("%d.%m.%Y %H:%M")
+        if first_seen else "нет данных"
+    )
+
     await message.answer(
         f"📊 Статистика\n\n"
         f"🍔 Объявлений: {food_count}\n"
-        f"👥 Пользователей: {users}"
+        f"👥 Пользователей: {users}\n"
+        f"🕒 Первый вход: {first_seen_text}"
     )
 
 
