@@ -69,13 +69,14 @@ db.commit()
 # ================== MEMORY ==================
 feed_index = {}
 my_ads_index = {}
+items_feed_index = {}
 
 
 # ================== KEYBOARDS ==================
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
-        [KeyboardButton(text="🛠 Услуги")],
+        [KeyboardButton(text="🧢 Продажа различных вещей")],
         [KeyboardButton(text="📢 Мои объявления")],
         [KeyboardButton(text="📱 Обновить контакт")]
     ],
@@ -100,6 +101,16 @@ food_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# Клавиатура раздела вещей
+items_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Добавить вещь")],
+        [KeyboardButton(text="📋 Смотреть вещи")],
+        [KeyboardButton(text="⬅️ Назад")]
+    ],
+    resize_keyboard=True
+)
+
 cancel_keyboard = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="❌ Отмена")]],
     resize_keyboard=True
@@ -119,6 +130,14 @@ admin_keyboard = ReplyKeyboardMarkup(
 
 # ================== FSM ==================
 class AddFood(StatesGroup):
+    photo = State()
+    price = State()
+    description = State()
+    dorm = State()
+    location = State()
+
+# FSM для добавления вещей (барахолка)
+class AddItem(StatesGroup):
     photo = State()
     price = State()
     description = State()
@@ -218,6 +237,87 @@ async def food_menu(message: Message):
         "🍔 Еда из общаг\n\n"
         "Можно пролистывать и выбирать 👇",
         reply_markup=food_keyboard
+    )
+
+# ================== ITEMS SECTION ==================
+
+# Меню раздела "Продажа различных вещей"
+@dp.message(lambda m: m.text == "🧢 Продажа различных вещей")
+async def items_menu(message: Message):
+    await message.answer(
+        "🧢 Продажа различных вещей\n\n"
+        "Здесь можно продавать и покупать любые вещи.\n"
+        "Выбери действие 👇",
+        reply_markup=items_keyboard
+    )
+
+# Рабочие обработчики для добавления и просмотра вещей
+@dp.message(lambda m: m.text == "➕ Добавить вещь")
+async def add_item(message: Message, state: FSMContext):
+    await message.answer("📸 Отправь фото вещи", reply_markup=cancel_keyboard)
+    await state.set_state(AddItem.photo)
+
+
+@dp.message(AddItem.photo)
+async def item_photo(message: Message, state: FSMContext):
+    if not message.photo:
+        await message.answer("❌ Нужно фото", reply_markup=cancel_keyboard)
+        return
+    await state.update_data(photo=message.photo[-1].file_id)
+    await message.answer("💰 Напиши цену", reply_markup=cancel_keyboard)
+    await state.set_state(AddItem.price)
+
+
+@dp.message(AddItem.price)
+async def item_price(message: Message, state: FSMContext):
+    await state.update_data(price=message.text)
+    await message.answer("📝 Опиши вещь", reply_markup=cancel_keyboard)
+    await state.set_state(AddItem.description)
+
+
+@dp.message(AddItem.description)
+async def item_desc(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await message.answer("🏠 Номер общежития (3 / 4 / 5)", reply_markup=cancel_keyboard)
+    await state.set_state(AddItem.dorm)
+
+
+@dp.message(AddItem.dorm)
+async def item_dorm(message: Message, state: FSMContext):
+    if not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
+        await message.answer("❌ Введи 3, 4 или 5", reply_markup=cancel_keyboard)
+        return
+    await state.update_data(dorm=int(message.text))
+    await message.answer("📍 Этаж и комната", reply_markup=cancel_keyboard)
+    await state.set_state(AddItem.location)
+
+
+@dp.message(AddItem.location)
+async def item_finish(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    cursor.execute(
+        "INSERT INTO items (user_id, photo, price, description, dorm, location, approved) VALUES (?, ?, ?, ?, ?, ?, 0)",
+        (
+            message.from_user.id,
+            data["photo"],
+            data["price"],
+            data["description"],
+            data["dorm"],
+            message.text
+        )
+    )
+    db.commit()
+
+    await bot.send_message(
+        ADMIN_ID,
+        "🆕 Новая вещь на модерации"
+    )
+
+    await state.clear()
+    await message.answer(
+        "⏳ Вещь отправлена на модерацию",
+        reply_markup=main_keyboard
     )
 
 
@@ -828,3 +928,116 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+# ================== ITEMS SWIPE VIEW ==================
+
+# Смотреть вещи (свайпы)
+@dp.message(lambda m: m.text == "📋 Смотреть вещи")
+async def view_items(message: Message):
+    cursor.execute(
+        "SELECT id, user_id, photo, price, description, dorm, location, views "
+        "FROM items WHERE approved = 1 ORDER BY id DESC"
+    )
+    items = cursor.fetchall()
+
+    if not items:
+        await message.answer("📭 Вещей пока нет")
+        return
+
+    items_feed_index[message.from_user.id] = 0
+    await show_item(message.from_user.id, message)
+
+
+async def show_item(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, user_id, photo, price, description, dorm, location, views "
+        "FROM items WHERE approved = 1 ORDER BY id DESC"
+    )
+    items = cursor.fetchall()
+
+    index = items_feed_index.get(user_id, 0)
+
+    if not items:
+        await message.answer("📭 Вещей пока нет")
+        return
+
+    if index >= len(items):
+        index = 0
+        items_feed_index[user_id] = 0
+
+    item_id, seller_id, photo, price, desc, dorm, loc, views = items[index]
+    total = len(items)
+    current = index + 1
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="item_prev"),
+                InlineKeyboardButton(text="❤️ Связаться", callback_data=f"item_like:{item_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="item_next")
+            ]
+        ]
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            f"📦 Барахолка Маркет\n"
+            f"📍 {current} / {total}\n\n"
+            f"🏠 Общага: {dorm}\n"
+            f"💰 Цена: {price}\n\n"
+            f"📝 {desc}\n\n"
+            f"❤️ Нажми, чтобы связаться с продавцом"
+        ),
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(lambda c: c.data == "item_next")
+async def item_next(callback: CallbackQuery):
+    items_feed_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_item(callback.from_user.id, callback.message)
+
+
+@dp.callback_query(lambda c: c.data == "item_prev")
+async def item_prev(callback: CallbackQuery):
+    items_feed_index[callback.from_user.id] = max(
+        0, items_feed_index.get(callback.from_user.id, 0) - 1
+    )
+    await callback.message.delete()
+    await show_item(callback.from_user.id, callback.message)
+
+
+@dp.callback_query(lambda c: c.data.startswith("item_like:"))
+async def item_like(callback: CallbackQuery):
+    item_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "SELECT items.user_id, users.username "
+        "FROM items LEFT JOIN users ON items.user_id = users.user_id "
+        "WHERE items.id = ?",
+        (item_id,)
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        await callback.answer("❌ Не найдено", show_alert=True)
+        return
+
+    seller_id, username = row
+
+    if username:
+        text = f"👤 Продавец:\n👉 https://t.me/{username}"
+    else:
+        text = "❌ Продавец не указал username"
+
+    try:
+        await bot.send_message(
+            seller_id,
+            "❤️ Твоей вещью заинтересовались!\nЗайди в бота 👀"
+        )
+    except:
+        pass
+
+    await callback.answer()
+    await callback.message.answer(text)
