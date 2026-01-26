@@ -3,6 +3,7 @@ import sqlite3
 import time
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
@@ -20,7 +21,7 @@ BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"   # ← ВСТАВ�
 ADMIN_ID = 7204477763                  # ← ВСТАВЬ СВОЙ TG ID
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 # ================= DATABASE =================
 db = sqlite3.connect("database.db")
@@ -52,6 +53,7 @@ db.commit()
 user_feed_index = {}
 admin_feed_index = {}
 user_filters = {}
+user_ads_index = {}
 
 # ================= KEYBOARDS =================
 main_keyboard = ReplyKeyboardMarkup(
@@ -143,6 +145,14 @@ async def start(message: Message):
 @dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
     await message.answer("🍔 Раздел еды", reply_markup=food_keyboard)
+
+@dp.message(lambda m: m.text == "📚 Учёба")
+async def study_soon(message: Message):
+    await message.answer("📚 Раздел «Учёба»\n\nСкоро появится 👀", reply_markup=main_keyboard)
+
+@dp.message(lambda m: m.text == "🛠 Услуги")
+async def services_soon(message: Message):
+    await message.answer("🛠 Раздел «Услуги»\n\nСкоро появится 👀", reply_markup=main_keyboard)
 
 @dp.message(lambda m: m.text == "⬅️ Назад")
 async def back(message: Message):
@@ -250,6 +260,51 @@ async def food_finish(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Еда добавлена", reply_markup=main_keyboard)
 
+@dp.message(lambda m: m.text == "📢 Мои объявления")
+async def my_ads(message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, food_type, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
+        (message.from_user.id,)
+    )
+    ads = cursor.fetchall()
+
+    if not ads:
+        await message.answer("📭 У тебя пока нет объявлений.", reply_markup=main_keyboard)
+        return
+
+    user_ads_index[message.from_user.id] = 0
+    await show_my_ad(message.from_user.id, message)
+
+async def show_my_ad(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, food_type, location FROM food WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,)
+    )
+    ads = cursor.fetchall()
+
+    index = user_ads_index.get(user_id, 0)
+    if index >= len(ads):
+        await message.answer("📭 Объявления закончились", reply_markup=main_keyboard)
+        return
+
+    food_id, photo, price, desc, dorm, food_type, loc = ads[index]
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="my_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_my:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="my_next")
+            ]
+        ]
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=f"🏠 Общага {dorm}\n🍽 {food_type}\n💰 {price}\n📝 {desc}\n📍 {loc}",
+        reply_markup=keyboard
+    )
+
 # ================= VIEW FOOD =================
 @dp.message(lambda m: m.text == "📋 Смотреть еду")
 async def view_food(message: Message):
@@ -316,6 +371,31 @@ async def like_food(callback: CallbackQuery):
         f"📍 Где забрать:\n{loc}\n\n"
         f"👤 Продавец:\nhttps://t.me/user?id={seller}"
     )
+
+@dp.callback_query(lambda c: c.data == "my_next")
+async def my_next_ad(callback: CallbackQuery):
+    user_ads_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_my_ad(callback.from_user.id, callback.message)
+
+@dp.callback_query(lambda c: c.data == "my_prev")
+async def my_prev_ad(callback: CallbackQuery):
+    user_ads_index[callback.from_user.id] = max(0, user_ads_index[callback.from_user.id] - 1)
+    await callback.message.delete()
+    await show_my_ad(callback.from_user.id, callback.message)
+
+@dp.callback_query(lambda c: c.data.startswith("delete_my"))
+async def delete_my_ad(callback: CallbackQuery):
+    food_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "DELETE FROM food WHERE id = ? AND user_id = ?",
+        (food_id, callback.from_user.id)
+    )
+    db.commit()
+
+    await callback.answer("🗑 Объявление удалено")
+    await callback.message.delete()
 
 # ================= RUN =================
 async def main():
