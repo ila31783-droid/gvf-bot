@@ -384,6 +384,45 @@ async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
 
     cursor.execute(
+        "SELECT food.user_id, food.dorm, food.location, users.username "
+        "FROM food JOIN users ON food.user_id = users.user_id "
+        "WHERE food.id = ?",
+        (food_id,)
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        await callback.answer("❌ Объявление не найдено", show_alert=True)
+        return
+
+    seller_id, dorm, location, username = row
+
+    text = (
+        "✅ Ты выбрал это объявление\n\n"
+        f"🏠 Общежитие: {dorm}\n"
+        f"📍 Где забрать:\n{location}\n\n"
+        "👤 Продавец:\n"
+    )
+
+    if username:
+        text += f"👉 <a href='https://t.me/{username}'>Написать в Telegram</a>"
+    else:
+        text += "❌ Продавец не указал username"
+
+    # уведомление продавцу
+    try:
+        await bot.send_message(
+            seller_id,
+            "❤️ Твоё объявление понравилось!\n"
+            "Зайди в бота — возможно, с тобой хотят связаться 👀"
+        )
+    except:
+        pass
+
+    await callback.answer()
+    await callback.message.answer(text, parse_mode="HTML")
+
+    cursor.execute(
         "SELECT food.user_id, food.dorm, food.location, users.username, users.phone "
         "FROM food JOIN users ON food.user_id = users.user_id "
         "WHERE food.id = ?",
