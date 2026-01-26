@@ -70,15 +70,18 @@ db.commit()
 feed_index = {}
 my_ads_index = {}
 items_feed_index = {}
+my_items_index = {}
+admin_items_index = {}
 
 
 # ================== KEYBOARDS ==================
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
-        [KeyboardButton(text="🧢 Продажа различных вещей")],
+        [KeyboardButton(text="🍔 Еда из общаг")],
+        [KeyboardButton(text="📦 Барахолка")],
+        [KeyboardButton(text="📚 Учёба (скоро)")],
         [KeyboardButton(text="📢 Мои объявления")],
-        [KeyboardButton(text="📱 Обновить контакт")]
+        [KeyboardButton(text="👤 Профиль")]
     ],
     resize_keyboard=True
 )
@@ -170,26 +173,20 @@ async def start(message: Message):
         )
         db.commit()
 
-    cursor.execute(
-        "SELECT user_id FROM users WHERE user_id = ?",
-        (message.from_user.id,)
-    )
-    user = cursor.fetchone()
-
-    if not user:
         await message.answer(
             "👋 Добро пожаловать в ГВФ Маркет\n\n"
-            "Чтобы другие могли связаться с тобой,\n"
-            "поделись контактом 👇",
+            "Здесь можно:\n"
+            "🍔 Купить еду из общаг\n"
+            "📦 Продать или купить вещи\n"
+            "📚 Найти помощь с учёбой\n\n"
+            "Для связи с другими пользователями\n"
+            "рекомендуем указать контакт 👇",
             reply_markup=contact_keyboard
         )
         return
 
     await message.answer(
-        "👋 Добро пожаловать в ГВФ Маркет\n\n"
-        "🍔 Еда из общаг\n"
-        "📚 Помощь с учёбой\n"
-        "🛠 Разные услуги\n\n"
+        "👋 С возвращением в ГВФ Маркет\n\n"
         "Выбирай, что тебе нужно 👇",
         reply_markup=main_keyboard
     )
@@ -231,23 +228,22 @@ async def update_contact(message: Message):
         "📱 Обнови контакт, чтобы с тобой могли связаться 👇",
         reply_markup=contact_keyboard
     )
-@dp.message(lambda m: m.text == "🍔 Еда")
+@dp.message(lambda m: m.text == "🍔 Еда из общаг")
 async def food_menu(message: Message):
     await message.answer(
         "🍔 Еда из общаг\n\n"
-        "Можно пролистывать и выбирать 👇",
+        "Пролистывай объявления и выбирай 👇",
         reply_markup=food_keyboard
     )
 
 # ================== ITEMS SECTION ==================
 
 # Меню раздела "Продажа различных вещей"
-@dp.message(lambda m: m.text == "🧢 Продажа различных вещей")
+@dp.message(lambda m: m.text == "📦 Барахолка")
 async def items_menu(message: Message):
     await message.answer(
-        "🧢 Продажа различных вещей\n\n"
-        "Здесь можно продавать и покупать любые вещи.\n"
-        "Выбери действие 👇",
+        "📦 Барахолка\n\n"
+        "Продажа и покупка любых вещей 👇",
         reply_markup=items_keyboard
     )
 
@@ -573,41 +569,74 @@ async def like_food(callback: CallbackQuery):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, location, views, approved FROM food WHERE user_id = ?",
+        "SELECT id FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
-    ads = cursor.fetchall()
+    food_exists = cursor.fetchone()
 
-    if not ads:
+    cursor.execute(
+        "SELECT id FROM items WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    item_exists = cursor.fetchone()
+
+    if not food_exists and not item_exists:
         await message.answer("📭 У тебя нет объявлений")
         return
 
-    my_ads_index[message.from_user.id] = 0
-    await show_my_ad(message.from_user.id, message)
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🍔 Моя еда")],
+            [KeyboardButton(text="📦 Мои вещи")],
+            [KeyboardButton(text="⬅️ Назад")]
+        ],
+        resize_keyboard=True
+    )
+
+    await message.answer("📢 Твои объявления", reply_markup=keyboard)
 
 
-async def show_my_ad(user_id: int, message: Message):
+# =========== МОИ ВЕЩИ (СВАЙПЫ) ===========
+@dp.message(lambda m: m.text == "📦 Мои вещи")
+async def my_items(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, location, views, approved FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, location, approved "
+        "FROM items WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    items = cursor.fetchall()
+
+    if not items:
+        await message.answer("📭 У тебя нет вещей")
+        return
+
+    my_items_index[message.from_user.id] = 0
+    await show_my_item(message.from_user.id, message)
+
+
+async def show_my_item(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location, approved "
+        "FROM items WHERE user_id = ?",
         (user_id,)
     )
-    ads = cursor.fetchall()
+    items = cursor.fetchall()
 
-    index = my_ads_index.get(user_id, 0)
-    if index >= len(ads):
+    index = my_items_index.get(user_id, 0)
+    if index >= len(items):
         index = 0
-        my_ads_index[user_id] = 0
+        my_items_index[user_id] = 0
 
-    food_id, photo, price, desc, dorm, loc, views, approved = ads[index]
-    total = len(ads)
+    item_id, photo, price, desc, dorm, loc, approved = items[index]
+    total = len(items)
     current = index + 1
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⬅️", callback_data="my_prev"),
-                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete:{food_id}"),
-                InlineKeyboardButton(text="➡️", callback_data="my_next")
+                InlineKeyboardButton(text="⬅️", callback_data="my_item_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_item:{item_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="my_item_next")
             ]
         ]
     )
@@ -615,17 +644,47 @@ async def show_my_ad(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"📢 Моё объявление\n"
+            f"📦 Моя вещь\n"
             f"📍 {current} / {total}\n\n"
-            f"🏠 Общежитие: {dorm}\n"
-            f"📍 Место: {loc}\n"
-            f"💰 Цена: {price} ₽\n"
-            f"👀 Просмотров: {views}\n"
+            f"🏠 Общага: {dorm}\n"
+            f"📍 {loc}\n"
+            f"💰 Цена: {price}\n"
             f"📌 Статус: {'🟢 Активно' if approved else '🟡 На модерации'}\n\n"
-            f"📝 Описание:\n{desc}"
+            f"{desc}"
         ),
         reply_markup=keyboard
     )
+
+
+# =========== CALLBACK ДЛЯ МОИХ ВЕЩЕЙ ===========
+@dp.callback_query(lambda c: c.data == "my_item_next")
+async def my_item_next(callback: CallbackQuery):
+    my_items_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_my_item(callback.from_user.id, callback.message)
+
+
+@dp.callback_query(lambda c: c.data == "my_item_prev")
+async def my_item_prev(callback: CallbackQuery):
+    my_items_index[callback.from_user.id] = max(
+        0, my_items_index.get(callback.from_user.id, 0) - 1
+    )
+    await callback.message.delete()
+    await show_my_item(callback.from_user.id, callback.message)
+
+
+@dp.callback_query(lambda c: c.data.startswith("delete_item:"))
+async def delete_item(callback: CallbackQuery):
+    item_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "DELETE FROM items WHERE id = ? AND user_id = ?",
+        (item_id, callback.from_user.id)
+    )
+    db.commit()
+
+    await callback.answer("🗑 Удалено")
+    await callback.message.delete()
 # ================== ADMIN ==================
 
 
@@ -1041,3 +1100,103 @@ async def item_like(callback: CallbackQuery):
 
     await callback.answer()
     await callback.message.answer(text)
+# =========== МОДЕРАЦИЯ ВЕЩЕЙ В АДМИНКЕ ===========
+@dp.message(lambda m: m.text == "🛂 Модерация вещей")
+async def admin_items_moderation(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    admin_items_index[message.from_user.id] = 0
+    await show_items_moderation(message.from_user.id, message)
+
+
+async def show_items_moderation(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location "
+        "FROM items WHERE approved = 0"
+    )
+    items = cursor.fetchall()
+
+    if not items:
+        await message.answer("✅ Нет вещей на модерации")
+        return
+
+    index = admin_items_index.get(user_id, 0)
+    if index >= len(items):
+        index = 0
+        admin_items_index[user_id] = 0
+
+    item_id, photo, price, desc, dorm, loc = items[index]
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"item_reject:{item_id}"),
+                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"item_approve:{item_id}")
+            ]
+        ]
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            f"📦 Вещь на модерации\n\n"
+            f"🏠 Общага: {dorm}\n"
+            f"📍 {loc}\n"
+            f"💰 {price}\n\n"
+            f"{desc}"
+        ),
+        reply_markup=keyboard
+    )
+
+
+# =========== CALLBACK ДЛЯ МОДЕРАЦИИ ВЕЩЕЙ ===========
+@dp.callback_query(lambda c: c.data.startswith("item_approve:"))
+async def approve_item(callback: CallbackQuery):
+    item_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "UPDATE items SET approved = 1 WHERE id = ?",
+        (item_id,)
+    )
+    db.commit()
+
+    await callback.answer("✅ Одобрено")
+    await callback.message.delete()
+
+
+@dp.callback_query(lambda c: c.data.startswith("item_reject:"))
+async def reject_item(callback: CallbackQuery):
+    item_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "DELETE FROM items WHERE id = ?",
+        (item_id,)
+    )
+    db.commit()
+
+    await callback.answer("❌ Отклонено")
+    await callback.message.delete()
+# Обработчик профиля
+@dp.message(lambda m: m.text == "👤 Профиль")
+async def profile(message: Message):
+    cursor.execute(
+        "SELECT phone, first_seen FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    row = cursor.fetchone()
+
+    phone, first_seen = row if row else (None, None)
+
+    from datetime import datetime
+    first_seen_text = (
+        datetime.fromtimestamp(first_seen).strftime("%d.%m.%Y")
+        if first_seen else "неизвестно"
+    )
+
+    await message.answer(
+        "👤 Твой профиль\n\n"
+        f"📞 Контакт: {'привязан' if phone else 'не привязан'}\n"
+        f"🕒 В боте с: {first_seen_text}",
+        reply_markup=main_keyboard
+    )
