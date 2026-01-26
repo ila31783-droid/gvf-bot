@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS food (
     photo TEXT,
     price TEXT,
     description TEXT,
+    dorm INTEGER,
     location TEXT
 )
 """)
@@ -85,6 +86,7 @@ class AddFood(StatesGroup):
     photo = State()
     price = State()
     description = State()
+    dorm = State()
     location = State()
 
 
@@ -155,7 +157,27 @@ async def add_price(message: Message, state: FSMContext):
 @dp.message(AddFood.description)
 async def add_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await message.answer("📍 Этаж и комната\nНапример: 5 этаж 213", reply_markup=cancel_keyboard)
+    await message.answer(
+        "🏠 Номер общежития (3, 4 или 5)",
+        reply_markup=cancel_keyboard
+    )
+    await state.set_state(AddFood.dorm)
+
+
+@dp.message(AddFood.dorm)
+async def add_dorm(message: Message, state: FSMContext):
+    if not message.text.isdigit() or int(message.text) not in [3, 4, 5]:
+        await message.answer(
+            "❌ Введи номер общежития: 3, 4 или 5",
+            reply_markup=cancel_keyboard
+        )
+        return
+
+    await state.update_data(dorm=int(message.text))
+    await message.answer(
+        "📍 Этаж и комната\nНапример: 5 этаж, 213",
+        reply_markup=cancel_keyboard
+    )
     await state.set_state(AddFood.location)
 
 
@@ -164,12 +186,13 @@ async def add_location(message: Message, state: FSMContext):
     data = await state.get_data()
 
     cursor.execute(
-        "INSERT INTO food (user_id, photo, price, description, location) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO food (user_id, photo, price, description, dorm, location) VALUES (?, ?, ?, ?, ?, ?)",
         (
             message.from_user.id,
             data["photo"],
             data["price"],
             data["description"],
+            data["dorm"],
             message.text
         )
     )
@@ -182,7 +205,7 @@ async def add_location(message: Message, state: FSMContext):
 # ================== VIEW FOOD (SWIPE) ==================
 @dp.message(lambda m: m.text == "📋 Смотреть еду")
 async def view_food(message: Message):
-    cursor.execute("SELECT id, user_id, photo, price, description, location FROM food ORDER BY id DESC")
+    cursor.execute("SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC")
     foods = cursor.fetchall()
 
     if not foods:
@@ -194,7 +217,7 @@ async def view_food(message: Message):
 
 
 async def show_food(user_id: int, message: Message):
-    cursor.execute("SELECT id, user_id, photo, price, description, location FROM food ORDER BY id DESC")
+    cursor.execute("SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC")
     foods = cursor.fetchall()
 
     index = feed_index.get(user_id, 0)
@@ -202,7 +225,7 @@ async def show_food(user_id: int, message: Message):
         await message.answer("🍽 Еда закончилась")
         return
 
-    food_id, seller_id, photo, price, desc, loc = foods[index]
+    food_id, seller_id, photo, price, desc, dorm, loc = foods[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -215,7 +238,11 @@ async def show_food(user_id: int, message: Message):
 
     await message.answer_photo(
         photo=photo,
-        caption=f"💰 {price}\n📝 {desc}",
+        caption=(
+            f"🏠 Общага {dorm}\n"
+            f"💰 {price}\n"
+            f"📝 {desc}"
+        ),
         reply_markup=keyboard
     )
 
@@ -245,7 +272,7 @@ async def like_food(callback: CallbackQuery):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, location FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
     ads = cursor.fetchall()
@@ -260,7 +287,7 @@ async def my_ads(message: Message):
 
 async def show_my_ad(user_id: int, message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, location FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ?",
         (user_id,)
     )
     ads = cursor.fetchall()
@@ -270,7 +297,7 @@ async def show_my_ad(user_id: int, message: Message):
         await message.answer("📭 Объявления закончились")
         return
 
-    food_id, photo, price, desc, loc = ads[index]
+    food_id, photo, price, desc, dorm, loc = ads[index]
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -284,7 +311,12 @@ async def show_my_ad(user_id: int, message: Message):
 
     await message.answer_photo(
         photo=photo,
-        caption=f"💰 {price}\n📝 {desc}\n📍 {loc}",
+        caption=(
+            f"🏠 Общага {dorm}\n"
+            f"💰 {price}\n"
+            f"📝 {desc}\n"
+            f"📍 {loc}"
+        ),
         reply_markup=keyboard
     )
 
