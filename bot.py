@@ -385,7 +385,7 @@ async def like_food(callback: CallbackQuery):
 
     cursor.execute(
         "SELECT food.user_id, food.dorm, food.location, users.username "
-        "FROM food JOIN users ON food.user_id = users.user_id "
+        "FROM food LEFT JOIN users ON food.user_id = users.user_id "
         "WHERE food.id = ?",
         (food_id,)
     )
