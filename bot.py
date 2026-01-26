@@ -107,12 +107,12 @@ async def cancel(message: Message, state: FSMContext):
 
 
 # ================== MENU ==================
-@dp.message(lambda m: m.text == "🍔 Еда" and not m.state)
+@dp.message(lambda m: m.text == "🍔 Еда")
 async def food_menu(message: Message):
     await message.answer("🍔 Раздел еды", reply_markup=food_keyboard)
 
 
-@dp.message(lambda m: m.text == "⬅️ Назад" and not m.state)
+@dp.message(lambda m: m.text == "⬅️ Назад")
 async def back(message: Message):
     await message.answer("Главное меню", reply_markup=main_keyboard)
 
