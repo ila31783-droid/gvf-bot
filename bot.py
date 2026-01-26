@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS food (
     price TEXT,
     description TEXT,
     dorm INTEGER,
-    location TEXT
+    location TEXT,
+    views INTEGER DEFAULT 0,
+    approved INTEGER DEFAULT 0
 )
 """)
 db.commit()
@@ -76,6 +78,7 @@ admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="🗂 Объявления")],
+        [KeyboardButton(text="🛂 Модерация")],
         [KeyboardButton(text="⬅️ Назад")]
     ],
     resize_keyboard=True
@@ -193,7 +196,7 @@ async def add_location(message: Message, state: FSMContext):
     data = await state.get_data()
 
     cursor.execute(
-        "INSERT INTO food (user_id, photo, price, description, dorm, location) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO food (user_id, photo, price, description, dorm, location, approved) VALUES (?, ?, ?, ?, ?, ?, 0)",
         (
             message.from_user.id,
             data["photo"],
@@ -205,14 +208,28 @@ async def add_location(message: Message, state: FSMContext):
     )
     db.commit()
 
+    await bot.send_message(
+        ADMIN_ID,
+        "🆕 Новое объявление на модерации\n\n"
+        f"👤 Пользователь: {message.from_user.id}\n"
+        f"🏠 Общага: {data['dorm']}\n"
+        f"💰 Цена: {data['price']}"
+    )
+
     await state.clear()
-    await message.answer("✅ Еда добавлена", reply_markup=main_keyboard)
+    await message.answer(
+        "⏳ Объявление отправлено на модерацию.\n"
+        "После проверки оно появится в ленте.",
+        reply_markup=main_keyboard
+    )
 
 
 # ================== VIEW FOOD (SWIPE) ==================
 @dp.message(lambda m: m.text == "📋 Смотреть еду")
 async def view_food(message: Message):
-    cursor.execute("SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC")
+    cursor.execute(
+        "SELECT id, user_id, photo, price, description, dorm, location, views FROM food WHERE approved = 1 ORDER BY id DESC"
+    )
     foods = cursor.fetchall()
 
     if not foods:
@@ -225,7 +242,7 @@ async def view_food(message: Message):
 
 async def show_food(user_id: int, message: Message):
     cursor.execute(
-        "SELECT id, user_id, photo, price, description, dorm, location FROM food ORDER BY id DESC"
+        "SELECT id, user_id, photo, price, description, dorm, location, views FROM food WHERE approved = 1 ORDER BY id DESC"
     )
     foods = cursor.fetchall()
 
@@ -238,9 +255,16 @@ async def show_food(user_id: int, message: Message):
         index = 0
         feed_index[user_id] = 0
 
-    food_id, seller_id, photo, price, desc, dorm, loc = foods[index]
+    food_id, seller_id, photo, price, desc, dorm, loc, views = foods[index]
     total = len(foods)
     current = index + 1
+
+    # increment views
+    cursor.execute(
+        "UPDATE food SET views = views + 1 WHERE id = ?",
+        (food_id,)
+    )
+    db.commit()
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -255,10 +279,11 @@ async def show_food(user_id: int, message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🍔 Домашняя еда\n"
+            f"🍔 Еда\n"
             f"📍 {current} / {total}\n\n"
             f"🏠 Общежитие: {dorm}\n"
-            f"💰 Цена: {price} ₽\n\n"
+            f"💰 Цена: {price} ₽\n"
+            f"👀 Просмотров: {views+1}\n\n"
             f"📝 Описание:\n{desc}\n\n"
             f"❤️ Нажми, чтобы узнать где забрать"
         ),
@@ -319,7 +344,7 @@ async def like_food(callback: CallbackQuery):
 @dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads(message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, location, views, approved FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
     ads = cursor.fetchall()
@@ -334,7 +359,7 @@ async def my_ads(message: Message):
 
 async def show_my_ad(user_id: int, message: Message):
     cursor.execute(
-        "SELECT id, photo, price, description, dorm, location FROM food WHERE user_id = ?",
+        "SELECT id, photo, price, description, dorm, location, views, approved FROM food WHERE user_id = ?",
         (user_id,)
     )
     ads = cursor.fetchall()
@@ -344,7 +369,7 @@ async def show_my_ad(user_id: int, message: Message):
         index = 0
         my_ads_index[user_id] = 0
 
-    food_id, photo, price, desc, dorm, loc = ads[index]
+    food_id, photo, price, desc, dorm, loc, views, approved = ads[index]
     total = len(ads)
     current = index + 1
 
@@ -365,11 +390,14 @@ async def show_my_ad(user_id: int, message: Message):
             f"📍 {current} / {total}\n\n"
             f"🏠 Общежитие: {dorm}\n"
             f"📍 Место: {loc}\n"
-            f"💰 Цена: {price} ₽\n\n"
+            f"💰 Цена: {price} ₽\n"
+            f"👀 Просмотров: {views}\n"
+            f"📌 Статус: {'🟢 Активно' if approved else '🟡 На модерации'}\n\n"
             f"📝 Описание:\n{desc}"
         ),
         reply_markup=keyboard
     )
+# ================== ADMIN ==================
 
 
 @dp.callback_query(lambda c: c.data == "my_next")
@@ -536,3 +564,79 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+admin_moderation_index = {}
+
+@dp.message(lambda m: m.text == "🛂 Модерация")
+async def admin_moderation(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    admin_moderation_index[message.from_user.id] = 0
+    await show_moderation(message.from_user.id, message)
+
+
+async def show_moderation(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location FROM food WHERE approved = 0"
+    )
+    ads = cursor.fetchall()
+
+    if not ads:
+        await message.answer("✅ Нет объявлений на модерации")
+        return
+
+    index = admin_moderation_index.get(user_id, 0)
+    if index >= len(ads):
+        index = 0
+        admin_moderation_index[user_id] = 0
+
+    food_id, photo, price, desc, dorm, loc = ads[index]
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_reject:{food_id}"),
+                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"mod_approve:{food_id}")
+            ]
+        ]
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            f"🆕 На модерации\n\n"
+            f"🏠 Общага: {dorm}\n"
+            f"📍 {loc}\n"
+            f"💰 {price}\n\n"
+            f"{desc}"
+        ),
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("mod_approve:"))
+async def mod_approve(callback: CallbackQuery):
+    food_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "UPDATE food SET approved = 1 WHERE id = ?",
+        (food_id,)
+    )
+    db.commit()
+
+    await callback.answer("✅ Одобрено")
+    await callback.message.delete()
+
+
+@dp.callback_query(lambda c: c.data.startswith("mod_reject:"))
+async def mod_reject(callback: CallbackQuery):
+    food_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "DELETE FROM food WHERE id = ?",
+        (food_id,)
+    )
+    db.commit()
+
+    await callback.answer("❌ Отклонено")
+    await callback.message.delete()
