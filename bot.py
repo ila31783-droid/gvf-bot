@@ -29,6 +29,7 @@ dp = Dispatcher(storage=MemoryStorage())
 db = sqlite3.connect("database.db")
 cursor = db.cursor()
 
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS food (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,6 +41,13 @@ CREATE TABLE IF NOT EXISTS food (
     location TEXT,
     views INTEGER DEFAULT 0,
     approved INTEGER DEFAULT 0
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    phone TEXT
 )
 """)
 db.commit()
@@ -58,6 +66,15 @@ main_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="📢 Мои объявления")]
     ],
     resize_keyboard=True
+)
+
+# Клавиатура для контакта
+contact_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📱 Поделиться контактом", request_contact=True)]
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True
 )
 
 food_keyboard = ReplyKeyboardMarkup(
@@ -97,12 +114,47 @@ class AddFood(StatesGroup):
 # ================== START ==================
 @dp.message(CommandStart())
 async def start(message: Message):
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    user = cursor.fetchone()
+
+    if not user:
+        await message.answer(
+            "👋 Добро пожаловать в ГВФ Маркет\n\n"
+            "Чтобы другие могли связаться с тобой,\n"
+            "поделись контактом 👇",
+            reply_markup=contact_keyboard
+        )
+        return
+
     await message.answer(
         "👋 Добро пожаловать в ГВФ Маркет\n\n"
         "🍔 Еда из общаг\n"
         "📚 Помощь с учёбой\n"
         "🛠 Разные услуги\n\n"
         "Выбирай, что тебе нужно 👇",
+        reply_markup=main_keyboard
+    )
+
+
+# Обработка контакта
+@dp.message(lambda m: m.contact is not None)
+async def save_contact(message: Message):
+    cursor.execute(
+        "INSERT OR REPLACE INTO users (user_id, username, phone) VALUES (?, ?, ?)",
+        (
+            message.from_user.id,
+            message.from_user.username,
+            message.contact.phone_number
+        )
+    )
+    db.commit()
+
+    await message.answer(
+        "✅ Контакт сохранён!\n\n"
+        "Теперь ты можешь покупать и продавать 👇",
         reply_markup=main_keyboard
     )
 
@@ -322,16 +374,24 @@ async def food_prev(callback: CallbackQuery):
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
 
-    cursor.execute("SELECT user_id, dorm, location FROM food WHERE id = ?", (food_id,))
-    seller_id, dorm, location = cursor.fetchone()
+    cursor.execute(
+        "SELECT food.user_id, food.dorm, food.location, users.username, users.phone "
+        "FROM food JOIN users ON food.user_id = users.user_id "
+        "WHERE food.id = ?",
+        (food_id,)
+    )
+    seller_id, dorm, location, username, phone = cursor.fetchone()
 
     text = (
         "✅ Ты выбрал это объявление\n\n"
         f"🏠 Общежитие: {dorm}\n"
         f"📍 Где забрать:\n{location}\n\n"
         "👤 Продавец:\n"
-        f"👉 <a href='tg://user?id={seller_id}'>Написать продавцу</a>"
     )
+    if username:
+        text += f"👉 <a href='https://t.me/{username}'>Написать в Telegram</a>\n"
+    if phone:
+        text += f"📱 Телефон: {phone}"
 
     await callback.answer()
     await callback.message.answer(
