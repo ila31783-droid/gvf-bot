@@ -26,7 +26,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 # ================== DATABASE ==================
-db = sqlite3.connect("database.db")
+db = sqlite3.connect("/data/database.db")
 cursor = db.cursor()
 
 
@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
     phone TEXT
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS views (
+    user_id INTEGER,
+    food_id INTEGER,
+    UNIQUE(user_id, food_id)
 )
 """)
 db.commit()
@@ -320,12 +327,22 @@ async def show_food(user_id: int, message: Message):
     total = len(foods)
     current = index + 1
 
-    # increment views
     cursor.execute(
-        "UPDATE food SET views = views + 1 WHERE id = ?",
-        (food_id,)
+        "SELECT 1 FROM views WHERE user_id = ? AND food_id = ?",
+        (user_id, food_id)
     )
-    db.commit()
+    viewed = cursor.fetchone()
+
+    if not viewed:
+        cursor.execute(
+            "INSERT INTO views (user_id, food_id) VALUES (?, ?)",
+            (user_id, food_id)
+        )
+        cursor.execute(
+            "UPDATE food SET views = views + 1 WHERE id = ?",
+            (food_id,)
+        )
+        db.commit()
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
