@@ -223,7 +223,7 @@ async def start(message: Message):
 
 
 # Обработка контакта
-@dp.message(lambda m: m.contact is not None, state=None)
+@dp.message(F.contact)
 async def save_contact(message: Message):
     cursor.execute(
         "INSERT OR REPLACE INTO users (user_id, username, phone) VALUES (?, ?, ?)",
