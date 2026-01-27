@@ -80,6 +80,23 @@ CREATE TABLE IF NOT EXISTS views (
 db.commit()
 
 
+# ================== CONTACT CHECK ==================
+async def require_contact(message: Message) -> bool:
+    cursor.execute(
+        "SELECT phone FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    row = cursor.fetchone()
+
+    if not row or not row[0]:
+        await message.answer(
+            "⚠️ Чтобы пользоваться ботом, нужно поделиться контактом 📱",
+            reply_markup=contact_keyboard
+        )
+        return False
+
+    return True
+
 # ================== MEMORY ==================
 feed_index = {}
 my_ads_index = {}
@@ -189,16 +206,15 @@ async def start(message: Message):
         db.commit()
 
         await message.answer(
-            "👋 Добро пожаловать в ГВФ Маркет\n\n"
-            "Здесь можно:\n"
-            "🍔 Купить еду из общаг\n"
-            "📦 Продать или купить вещи\n"
-            "📚 Найти помощь с учёбой\n\n"
-            "Для связи с другими пользователями\n"
-            "рекомендуем указать контакт 👇",
-            reply_markup=contact_keyboard
-        )
-        return
+    "👋 Добро пожаловать в ГВФ Маркет\n\n"
+    "⚠️ ВАЖНО\n"
+    "Для работы бота необходимо поделиться контактом.\n\n"
+    "Без контакта:\n"
+    "❌ нельзя писать продавцам\n"
+    "❌ нельзя продавать еду и вещи\n\n"
+    "📱 Нажми кнопку ниже, чтобы продолжить 👇",
+    reply_markup=contact_keyboard
+)
 
     await message.answer(
         "👋 С возвращением в ГВФ Маркет\n\n"
@@ -311,9 +327,10 @@ async def items_menu(message: Message):
 async def view_items_entry(message: Message):
     await view_items(message)
 
-# Рабочие обработчики для добавления и просмотра вещей
 @dp.message(lambda m: m.text == "➕ Добавить вещь")
 async def add_item(message: Message, state: FSMContext):
+    if not await require_contact(message):
+        return
     await message.answer("📸 Отправь фото вещи", reply_markup=cancel_keyboard)
     await state.set_state(AddItem.photo)
 
@@ -396,6 +413,8 @@ async def services(message: Message):
 # ================== ADD FOOD ==================
 @dp.message(lambda m: m.text == "➕ Добавить еду")
 async def add_food(message: Message, state: FSMContext):
+    if not await require_contact(message):
+        return
     await message.answer("📸 Отправь фото еды", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.photo)
 
@@ -501,6 +520,8 @@ async def add_location(message: Message, state: FSMContext):
 # ================== VIEW FOOD (SWIPE) ==================
 @dp.message(lambda m: m.text == "📋 Смотреть еду")
 async def view_food(message: Message):
+    if not await require_contact(message):
+        return
     cursor.execute(
         "SELECT id, user_id, photo, price, description, dorm, location, views FROM food ORDER BY id DESC"
     )
@@ -615,11 +636,10 @@ async def food_prev(callback: CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("like:"))
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
+    buyer = callback.from_user
 
     cursor.execute(
-        "SELECT food.user_id, users.username "
-        "FROM food LEFT JOIN users ON food.user_id = users.user_id "
-        "WHERE food.id = ?",
+        "SELECT food.user_id FROM food WHERE id = ?",
         (food_id,)
     )
     row = cursor.fetchone()
@@ -628,31 +648,31 @@ async def like_food(callback: CallbackQuery):
         await callback.answer("❌ Объявление не найдено", show_alert=True)
         return
 
-    seller_id, username = row
+    seller_id = row[0]
 
-    if username:
-        text = (
-            "👤 Продавец\n"
-            f"👉 https://t.me/{username}\n\n"
-            "Напиши ему напрямую в Telegram 👆"
-        )
-    else:
-        text = (
-            "👤 Продавец\n"
-            "❌ У продавца нет username\n"
-            "Попроси его добавить контакт в профиле"
-        )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👀 Посмотреть покупателя",
+                    callback_data=f"view_buyer:{buyer.id}"
+                )
+            ]
+        ]
+    )
 
     try:
         await bot.send_message(
             seller_id,
-            "❤️ Твоим объявлением заинтересовались!\nЗайди в бота 👀"
+            "❤️ Интерес к объявлению\n\n"
+            "Кто-то нажал ❤️ на твоё объявление.\n"
+            "Нажми кнопку ниже, чтобы посмотреть покупателя 👇",
+            reply_markup=keyboard
         )
     except:
         pass
 
     await callback.answer("❤️")
-    await callback.message.answer(text)
 
 
 
@@ -1034,10 +1054,10 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 # ================== ITEMS SWIPE VIEW ==================
-
-# Смотреть вещи (свайпы)
 @dp.message(lambda m: m.text == "📋 Смотреть вещи")
 async def view_items(message: Message):
+    if not await require_contact(message):
+        return
     cursor.execute(
         "SELECT id, user_id, photo, price, description, dorm, location, views "
         "FROM items WHERE approved = 1 ORDER BY id DESC"
@@ -1242,3 +1262,29 @@ async def study_soon(message: Message):
         "помощь с заданиями и услуги 👀",
         reply_markup=main_keyboard
     )
+# Новый обработчик для просмотра покупателя
+@dp.callback_query(lambda c: c.data.startswith("view_buyer:"))
+async def view_buyer(callback: CallbackQuery):
+    buyer_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "SELECT username FROM users WHERE user_id = ?",
+        (buyer_id,)
+    )
+    row = cursor.fetchone()
+
+    if row and row[0]:
+        text = (
+            "👤 Потенциальный покупатель\n\n"
+            f"👉 https://t.me/{row[0]}\n\n"
+            "Можешь написать ему напрямую 👆"
+        )
+    else:
+        text = (
+            "👤 Потенциальный покупатель\n\n"
+            "❌ У пользователя нет username\n"
+            "Он может написать тебе сам"
+        )
+
+    await callback.answer()
+    await callback.message.answer(text)
