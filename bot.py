@@ -16,6 +16,7 @@ from aiogram.types import (
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import SkipHandler
 
 
 # ================== CONFIG ==================
@@ -33,17 +34,20 @@ dp = Dispatcher(storage=MemoryStorage())
 # ================== MAINTENANCE MIDDLEWARE ==================
 @dp.message()
 async def maintenance_guard(message: Message):
-    # админ может смотреть бот как пользователь
-    if message.from_user.id == ADMIN_ID and ADMIN_VIEW_AS_USER is False:
-        return
+    # если техработ нет — пропускаем дальше ВСЕ обработчики
+    if not MAINTENANCE:
+        raise SkipHandler
 
-    if MAINTENANCE:
-        await message.answer(
-            "🛠 Ведутся технические работы\n\n"
-            "Бот временно недоступен.\n"
-            "Скоро всё заработает 🙏"
-        )
-        return
+    # админ: если он НЕ в режиме пользователя — пропускаем дальше
+    if message.from_user.id == ADMIN_ID and not ADMIN_VIEW_AS_USER:
+        raise SkipHandler
+
+    # всем остальным показываем сообщение о техработах
+    await message.answer(
+        "🛠 Ведутся технические работы\n\n"
+        "Бот временно недоступен.\n"
+        "Скоро всё заработает 🙏"
+    )
 
 
 # ================== DATABASE ==================
