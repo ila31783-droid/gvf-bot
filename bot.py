@@ -23,13 +23,20 @@ BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
 ADMIN_ID = 7204477763 # ВСТАВЬ СВОЙ TELEGRAM ID
 MAINTENANCE = True  # режим техработ (False — выключить)
 
+# admin view mode (True = админ видит всё, False = админ как обычный пользователь)
+ADMIN_VIEW_AS_USER = False
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 
 # ================== MAINTENANCE MIDDLEWARE ==================
-@dp.message(F.from_user.id != ADMIN_ID)
+@dp.message()
 async def maintenance_guard(message: Message):
+    # админ может смотреть бот как пользователь
+    if message.from_user.id == ADMIN_ID and ADMIN_VIEW_AS_USER is False:
+        return
+
     if MAINTENANCE:
         await message.answer(
             "🛠 Ведутся технические работы\n\n"
@@ -176,6 +183,7 @@ cancel_keyboard = ReplyKeyboardMarkup(
 
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
+        [KeyboardButton(text="👁 Режим пользователя")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="🗂 Объявления")],
         [KeyboardButton(text="📣 Рассылка")],
@@ -937,6 +945,7 @@ async def delete_item(callback: CallbackQuery):
 
 
 # ================== ADMIN ==================
+
 @dp.message(lambda m: m.text == "/admin")
 async def admin(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -944,6 +953,25 @@ async def admin(message: Message):
         return
 
     await message.answer("🔐 Админка", reply_markup=admin_keyboard)
+
+
+# ====== ADMIN: toggle admin view ======
+@dp.message(lambda m: m.text == "👁 Режим пользователя")
+async def toggle_admin_view(message: Message):
+    global ADMIN_VIEW_AS_USER
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    ADMIN_VIEW_AS_USER = not ADMIN_VIEW_AS_USER
+
+    status = "ВКЛ (ты как обычный пользователь)" if ADMIN_VIEW_AS_USER else "ВЫКЛ (полный админ-доступ)"
+
+    await message.answer(
+        f"👁 Режим пользователя\n\n"
+        f"Текущий статус: {status}",
+        reply_markup=admin_keyboard
+    )
 
 
 # ================== ADMIN BROADCAST ==================
