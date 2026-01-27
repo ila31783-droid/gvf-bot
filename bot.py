@@ -53,13 +53,26 @@ contact_keyboard = ReplyKeyboardMarkup(
 # ================= MIDDLEWARE =================
 @router.message()
 async def tech_mode_guard(message: Message):
-    if TECH_MODE and message.from_user.id != ADMIN_ID:
-        await message.answer(
-            "🔧 Бот временно на технических работах.\n\n"
-            "Попробуй зайти чуть позже 🙏"
-        )
+    if not TECH_MODE:
+        return  # техработ нет — всё работает
+
+    # админу можно всё
+    if message.from_user.id == ADMIN_ID:
         return
 
+    # разрешаем /start
+    if message.text and message.text.startswith("/start"):
+        return
+
+    # разрешаем отправку контакта
+    if message.contact:
+        return
+
+    # всё остальное — блокируем
+    await message.answer(
+        "🔧 Бот временно на технических работах.\n\n"
+        "Попробуй зайти чуть позже 🙏"
+    )
 # ================= START =================
 @router.message(Command("start"))
 async def start(message: Message):
