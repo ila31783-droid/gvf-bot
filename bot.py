@@ -400,19 +400,30 @@ async def add_food(message: Message, state: FSMContext):
     await state.set_state(AddFood.photo)
 
 
-@dp.message(AddFood.photo)
+@dp.message(AddFood.photo, F.photo)
 async def add_photo(message: Message, state: FSMContext):
-    if not message.photo:
-        await message.answer("❌ Нужно отправить фото", reply_markup=cancel_keyboard)
-        return
-
     await state.update_data(photo=message.photo[-1].file_id)
-    await message.answer("💰 Напиши цену", reply_markup=cancel_keyboard)
+    await message.answer("💰 Напиши цену (только цифры)", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.price)
+
+
+@dp.message(AddFood.photo)
+async def add_photo_wrong(message: Message):
+    await message.answer(
+        "❌ Нужно отправить именно ФОТО 📸\nПопробуй ещё раз",
+        reply_markup=cancel_keyboard
+    )
 
 
 @dp.message(AddFood.price)
 async def add_price(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer(
+            "❌ Цена должна быть числом\nНапример: 150",
+            reply_markup=cancel_keyboard
+        )
+        return
+
     await state.update_data(price=message.text)
     await message.answer("📝 Напиши описание", reply_markup=cancel_keyboard)
     await state.set_state(AddFood.description)
