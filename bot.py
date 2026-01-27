@@ -104,6 +104,11 @@ class AddFood(StatesGroup):
     dorm = State()
     location = State()
 
+@router.message(lambda m: m.text == "❌ Отмена")
+async def cancel_any(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
+
 # ================== ROUTER ==================
 
 router = Router()
@@ -157,8 +162,12 @@ async def add_food_start(message: Message, state: FSMContext):
 @router.message(AddFood.photo)
 async def add_food_photo(message: Message, state: FSMContext):
     if not message.photo:
-        await message.answer("❌ Нужно фото")
+        await message.answer(
+            "❌ Нужно отправить ФОТО еды\nИли нажми ❌ Отмена",
+            reply_markup=cancel_keyboard
+        )
         return
+
     await state.update_data(photo=message.photo[-1].file_id)
     await state.set_state(AddFood.price)
     await message.answer("💰 Цена?")
@@ -236,7 +245,7 @@ async def show_feed(message: Message):
 
 @router.callback_query(lambda c: c.data == "feed_next")
 async def feed_next(callback: CallbackQuery):
-    feed_index[callback.from_user.id] += 1
+    feed_index[callback.from_user.id] = feed_index.get(callback.from_user.id, 0) + 1
     await callback.message.delete()
     await show_feed(callback.message)
 
@@ -345,6 +354,13 @@ async def profile(message: Message):
         f"👤 Профиль\n\n"
         f"👤 @{u[0]}\n"
         f"📱 {u[1]}"
+    )
+
+@router.message()
+async def fallback_handler(message: Message):
+    await message.answer(
+        "⚠️ Я не понял команду.\nИспользуй кнопки ниже 👇",
+        reply_markup=main_keyboard
     )
 
 # ================== APP ==================
