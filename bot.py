@@ -231,12 +231,12 @@ async def cancel(message: Message, state: FSMContext):
     await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
 
 # ================== GLOBAL HANDLERS FOR "📢 Мои объявления" AND "👤 Профиль" ==================
-@dp.message(lambda m: m.text == "📢 Мои объявления", state="*")
+@dp.message(lambda m: m.text == "📢 Мои объявления")
 async def my_ads_any_state(message: Message, state: FSMContext):
     await state.clear()
     await my_ads(message)
 
-@dp.message(lambda m: m.text == "👤 Профиль", state="*")
+@dp.message(lambda m: m.text == "👤 Профиль")
 async def profile_any_state(message: Message, state: FSMContext):
     await state.clear()
     await profile(message)
