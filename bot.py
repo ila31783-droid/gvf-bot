@@ -104,16 +104,11 @@ class AddFood(StatesGroup):
     dorm = State()
     location = State()
 
-@router.message(lambda m: m.text == "❌ Отмена")
-async def cancel_any(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
-
 # ================== ROUTER ==================
 
 router = Router()
 feed_index = {}
-current_feed = {}  # user_id -> food_id
+current_feed = {}
 my_index = {}
 
 # ---------- CANCEL ----------
@@ -151,13 +146,20 @@ async def start(message: Message):
 # ---------- SAVE CONTACT ----------
 
 @router.message(lambda m: m.contact is not None)
-async def save_contact(message: Message):
+async def save_contact(message: Message, state: FSMContext):
     cursor.execute(
         "UPDATE users SET phone = ? WHERE user_id = ?",
         (message.contact.phone_number, message.from_user.id)
     )
     db.commit()
-    await message.answer("✅ Номер сохранён", reply_markup=main_keyboard)
+
+    await state.clear()
+
+    await message.answer(
+        "✅ Номер сохранён\n\n"
+        "Теперь ты можешь пользоваться ботом 👇",
+        reply_markup=main_keyboard
+    )
 
 # ---------- ADD FOOD ----------
 
