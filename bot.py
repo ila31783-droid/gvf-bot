@@ -1,3 +1,7 @@
+from aiogram import Router
+
+router = Router()
+
 @router.message(lambda m: m.text == "👤 Профиль")
 async def profile(message: Message):
     cursor.execute(
