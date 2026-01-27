@@ -223,11 +223,23 @@ async def save_contact(message: Message):
     )
 
 
+
 # ================== CANCEL ==================
 @dp.message(lambda m: m.text == "❌ Отмена")
 async def cancel(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
+
+# ================== GLOBAL HANDLERS FOR "📢 Мои объявления" AND "👤 Профиль" ==================
+@dp.message(lambda m: m.text == "📢 Мои объявления", state="*")
+async def my_ads_any_state(message: Message, state: FSMContext):
+    await state.clear()
+    await my_ads(message)
+
+@dp.message(lambda m: m.text == "👤 Профиль", state="*")
+async def profile_any_state(message: Message, state: FSMContext):
+    await state.clear()
+    await profile(message)
 
 
 # ================== MENU ==================
