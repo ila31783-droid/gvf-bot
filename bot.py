@@ -240,6 +240,7 @@ async def cancel(message: Message, state: FSMContext):
 
 # Обработчик кнопки "Обновить контакт"
 @dp.message(lambda m: m.text in ["📱 Обновить контакт", "📱 Привязать / обновить контакт"])
+async def update_contact(message: Message):
     await message.answer(
         "📱 Обнови контакт, чтобы с тобой могли связаться 👇",
         reply_markup=contact_keyboard
@@ -1180,57 +1181,6 @@ async def reject_item(callback: CallbackQuery):
     )
     db.commit()
 
-     @dp.message(F.text == "👤 Профиль")
-async def profile(message: Message):
-    cursor.execute(
-        "SELECT phone, first_seen FROM users WHERE user_id = ?",
-        (message.from_user.id,)
-    )
-    row = cursor.fetchone()
-
-    phone, first_seen = row if row else (None, None)
-
-    from datetime import datetime
-    first_seen_text = (
-        datetime.fromtimestamp(first_seen).strftime("%d.%m.%Y")
-        if first_seen else "неизвестно"
-    )
-
-    profile_keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📱 Привязать / обновить контакт")],
-            [KeyboardButton(text="⬅️ Назад")]
-        ],
-        resize_keyboard=True
-    )
-
-    await message.answer(
-        "👤 Твой профиль\n\n"
-        f"📞 Контакт: {'привязан' if phone else '❌ не привязан'}\n"
-        f"🕒 В боте с: {first_seen_text}\n\n"
-        "ℹ️ Контакт нужен, чтобы\n"
-        "покупатели могли написать тебе напрямую",
-        reply_markup=profile_keyboard
-    )
-    row = cursor.fetchone()
-
-    phone, first_seen = row if row else (None, None)
-
-    from datetime import datetime
-    first_seen_text = (
-        datetime.fromtimestamp(first_seen).strftime("%d.%m.%Y")
-        if first_seen else "неизвестно"
-    )
-
-    await message.answer(
-        "👤 Твой профиль\n\n"
-        f"📞 Контакт: {'привязан' if phone else 'не привязан'}\n"
-        f"🕒 В боте с: {first_seen_text}\n\n"
-        "Здесь скоро появятся:\n"
-        "⭐ рейтинг\n"
-        "📊 статистика",
-        reply_markup=main_keyboard
-    )
 
 
 # Обработчик кнопки "📚 Учёба (скоро)"
