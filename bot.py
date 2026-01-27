@@ -613,13 +613,23 @@ async def food_prev(callback: CallbackQuery):
     await show_food(user_id, callback.message)
 
 
+
 @dp.callback_query(lambda c: c.data.startswith("like:"))
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
     buyer = callback.from_user
 
     cursor.execute(
-        "SELECT food.user_id FROM food WHERE id = ?",
+        """
+        SELECT 
+            food.user_id,
+            food.dorm,
+            food.location,
+            users.username
+        FROM food
+        LEFT JOIN users ON food.user_id = users.user_id
+        WHERE food.id = ?
+        """,
         (food_id,)
     )
     row = cursor.fetchone()
@@ -628,25 +638,40 @@ async def like_food(callback: CallbackQuery):
         await callback.answer("❌ Объявление не найдено", show_alert=True)
         return
 
-    seller_id = row[0]
+    seller_id, dorm, location, seller_username = row
 
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👀 Посмотреть покупателя",
-                    callback_data=f"view_buyer:{buyer.id}"
-                )
-            ]
-        ]
+    # ПОКУПАТЕЛЮ
+    text = (
+        "📍 Где забрать еду\n\n"
+        f"🏠 Общежитие: {dorm}\n"
+        f"📍 Место: {location}\n\n"
     )
+
+    if seller_username:
+        text += f"👤 Продавец: https://t.me/{seller_username}"
+    else:
+        text += "👤 Продавец: username не указан"
+
+    await callback.message.answer(text)
+
+    # ПРОДАВЦУ
+    keyboard = None
+    if buyer.username:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✉️ Написать покупателю",
+                        url=f"https://t.me/{buyer.username}"
+                    )
+                ]
+            ]
+        )
 
     try:
         await bot.send_message(
             seller_id,
-            "❤️ Интерес к объявлению\n\n"
-            "Кто-то нажал ❤️ на твоё объявление.\n"
-            "Нажми кнопку ниже, чтобы посмотреть покупателя 👇",
+            "❤️ Кто-то заинтересовался твоей едой!",
             reply_markup=keyboard
         )
     except:
