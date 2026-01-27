@@ -245,11 +245,6 @@ async def cancel(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
 
-# ================== GLOBAL HANDLERS FOR "📢 Мои объявления" AND "👤 Профиль" ==================
-@dp.message(lambda m: m.text == "📢 Мои объявления")
-async def my_ads_any_state(message: Message, state: FSMContext):
-    await state.clear()
-    await my_ads(message)
 
 
 # ================== MENU ==================
@@ -581,10 +576,11 @@ async def food_prev(callback: CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("like:"))
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
-    buyer_id = callback.from_user.id
 
     cursor.execute(
-        "SELECT user_id FROM food WHERE id = ?",
+        "SELECT food.user_id, users.username "
+        "FROM food LEFT JOIN users ON food.user_id = users.user_id "
+        "WHERE food.id = ?",
         (food_id,)
     )
     row = cursor.fetchone()
@@ -593,48 +589,48 @@ async def like_food(callback: CallbackQuery):
         await callback.answer("❌ Объявление не найдено", show_alert=True)
         return
 
-    seller_id = row[0]
+    seller_id, username = row
 
-    cursor.execute(
-        "INSERT OR REPLACE INTO dialogs (buyer_id, seller_id, food_id, active) VALUES (?, ?, ?, 1)",
-        (buyer_id, seller_id, food_id)
-    )
-    db.commit()
+    if username:
+        text = (
+            "👤 Продавец\n"
+            f"👉 https://t.me/{username}\n\n"
+            "Напиши ему напрямую в Telegram 👆"
+        )
+    else:
+        text = (
+            "👤 Продавец\n"
+            "❌ У продавца нет username\n"
+            "Попроси его добавить контакт в профиле"
+        )
 
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✉️ Написать продавцу", callback_data=f"msg:{food_id}")]
-        ]
-    )
+    try:
+        await bot.send_message(
+            seller_id,
+            "❤️ Твоим объявлением заинтересовались!\nЗайди в бота 👀"
+        )
+    except:
+        pass
 
     await callback.answer("❤️")
-    await callback.message.answer(
-        "✉️ Теперь ты можешь написать продавцу",
-        reply_markup=keyboard
-    )
+    await callback.message.answer(text)
+
 
 
 # ================== MY ADS ==================
 @dp.message(lambda m: m.text == "📢 Мои объявления")
-async def my_ads(message: Message):
+async def my_ads(message: Message, state: FSMContext):
+    await state.clear()
+
     cursor.execute(
         "SELECT COUNT(*) FROM food WHERE user_id = ?",
         (message.from_user.id,)
     )
-    food_count = cursor.fetchone()[0]
+    count = cursor.fetchone()[0]
 
-    cursor.execute(
-        "SELECT COUNT(*) FROM items WHERE user_id = ?",
-        (message.from_user.id,)
-    )
-    items_count = cursor.fetchone()[0]
-
-    if food_count == 0 and items_count == 0:
+    if count == 0:
         await message.answer(
-            "📭 У тебя пока нет объявлений.\n\n"
-            "Ты можешь добавить:\n"
-            "🍔 еду из общаг\n"
-            "📦 вещи",
+            "📭 У тебя пока нет объявлений с едой",
             reply_markup=main_keyboard
         )
         return
@@ -642,13 +638,44 @@ async def my_ads(message: Message):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🍔 Моя еда")],
-            [KeyboardButton(text="📦 Мои вещи")],
             [KeyboardButton(text="⬅️ Назад")]
         ],
         resize_keyboard=True
     )
 
     await message.answer("📢 Твои объявления", reply_markup=keyboard)
+
+
+# ===== МОЯ ЕДА =====
+@dp.message(lambda m: m.text == "🍔 Моя еда")
+async def my_food(message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location "
+        "FROM food WHERE user_id = ? ORDER BY id DESC",
+        (message.from_user.id,)
+    )
+    foods = cursor.fetchall()
+
+    if not foods:
+        await message.answer(
+            "📭 У тебя нет объявлений с едой",
+            reply_markup=main_keyboard
+        )
+        return
+
+    food_id, photo, price, desc, dorm, loc = foods[0]
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            f"🍔 Твоя еда\n\n"
+            f"🏠 Общага: {dorm}\n"
+            f"📍 {loc}\n"
+            f"💰 {price}\n\n"
+            f"{desc}"
+        ),
+        reply_markup=main_keyboard
+    )
 
 
 # =========== МОИ ВЕЩИ (СВАЙПЫ) ===========
