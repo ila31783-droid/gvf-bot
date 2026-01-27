@@ -21,6 +21,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # ================== CONFIG ==================
 BOT_TOKEN = "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
 ADMIN_ID = 7204477763 # ВСТАВЬ СВОЙ TELEGRAM ID
+MAINTENANCE = True  # режим техработ (False — выключить)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -28,9 +29,13 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # ================== DATABASE ==================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "database.db")
 
-db = sqlite3.connect(DB_PATH)
+DB_DIR = os.path.join(BASE_DIR, "db")
+os.makedirs(DB_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(DB_DIR, "database.db")
+
+db = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = db.cursor()
 
 
@@ -229,6 +234,18 @@ async def start(message: Message):
         await message.answer(
             "⚠️ Для работы бота нужно поделиться контактом 📱",
             reply_markup=contact_keyboard
+        )
+        return
+
+
+# ================== MAINTENANCE MODE HANDLER ==================
+@dp.message()
+async def maintenance_mode(message: Message):
+    if MAINTENANCE and message.from_user.id != ADMIN_ID:
+        await message.answer(
+            "🛠 Ведутся технические работы\n\n"
+            "Бот временно недоступен.\n"
+            "Скоро всё заработает 🙏"
         )
         return
 
