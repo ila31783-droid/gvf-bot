@@ -47,6 +47,20 @@ CREATE TABLE IF NOT EXISTS food (
     views INTEGER DEFAULT 0
 )
 """)
+# === CREATE items TABLE after food ===
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    photo TEXT,
+    price TEXT,
+    description TEXT,
+    dorm INTEGER,
+    location TEXT,
+    views INTEGER DEFAULT 0,
+    approved INTEGER DEFAULT 1
+)
+""")
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -235,11 +249,6 @@ async def cancel(message: Message, state: FSMContext):
 async def my_ads_any_state(message: Message, state: FSMContext):
     await state.clear()
     await my_ads(message)
-
-@dp.message(lambda m: m.text == "👤 Профиль")
-async def profile_any_state(message: Message, state: FSMContext):
-    await state.clear()
-    await profile(message)
 
 
 # ================== MENU ==================
@@ -1222,7 +1231,6 @@ async def reject_item(callback: CallbackQuery):
 
     await callback.answer("❌ Отклонено")
     await callback.message.delete()
-# Обработчик профиля
 @dp.message(lambda m: m.text == "👤 Профиль")
 async def profile(message: Message):
     cursor.execute(
@@ -1248,6 +1256,12 @@ async def profile(message: Message):
         "📊 статистика",
         reply_markup=main_keyboard
     )
+
+# Глобальный обработчик для профиля (должен быть ниже profile)
+@dp.message(lambda m: m.text == "👤 Профиль")
+async def profile_any_state(message: Message, state: FSMContext):
+    await state.clear()
+    await profile(message)
 
 # Обработчик кнопки "📚 Учёба (скоро)"
 @dp.message(lambda m: m.text == "📚 Учёба (скоро)")
