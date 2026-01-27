@@ -238,6 +238,48 @@ async def cancel(message: Message, state: FSMContext):
 
 # ================== MENU ==================
 
+# Обработчик кнопки "👤 Профиль"
+@dp.message(lambda m: m.text == "👤 Профиль")
+async def profile(message: Message):
+    cursor.execute(
+        "SELECT username, phone FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    user = cursor.fetchone()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM food WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    food_count = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM items WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    items_count = cursor.fetchone()[0]
+
+    username = f"@{user[0]}" if user and user[0] else "не указан"
+    phone = user[1] if user and user[1] else "не привязан"
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📱 Обновить контакт")],
+            [KeyboardButton(text="⬅️ Назад")]
+        ],
+        resize_keyboard=True
+    )
+
+    await message.answer(
+        f"👤 Твой профиль\n\n"
+        f"🆔 ID: {message.from_user.id}\n"
+        f"👤 Username: {username}\n"
+        f"📱 Телефон: {phone}\n\n"
+        f"🍔 Объявлений с едой: {food_count}\n"
+        f"📦 Вещей в барахолке: {items_count}",
+        reply_markup=keyboard
+    )
+
 # Обработчик кнопки "Обновить контакт"
 @dp.message(lambda m: m.text in ["📱 Обновить контакт", "📱 Привязать / обновить контакт"])
 async def update_contact(message: Message):
@@ -344,9 +386,6 @@ async def back(message: Message):
     await message.answer("Главное меню", reply_markup=main_keyboard)
 
 
-@dp.message(lambda m: m.text == "📚 Учёба")
-async def study(message: Message):
-    await message.answer("📚 Раздел скоро появится 👀")
 
 
 @dp.message(lambda m: m.text == "🛠 Услуги")
