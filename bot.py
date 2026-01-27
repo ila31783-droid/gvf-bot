@@ -5,7 +5,6 @@ import sqlite3
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters import Command
-from aiogram.dispatcher.event.handler import SkipHandler
 
 # ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN") or "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
@@ -51,22 +50,6 @@ contact_keyboard = ReplyKeyboardMarkup(
     one_time_keyboard=True
 )
 
-# ================= MIDDLEWARE =================
-@router.message(F.text)
-async def tech_mode_guard(message: Message):
-    if not TECH_MODE:
-        raise SkipHandler()
-
-    if message.from_user.id == ADMIN_ID:
-        raise SkipHandler()
-
-    if message.text and message.text.startswith("/start"):
-        raise SkipHandler()
-
-    await message.answer(
-        "🔧 Бот временно на технических работах.\n\n"
-        "Попробуй зайти чуть позже 🙏"
-    )
 # ================= START =================
 @router.message(Command("start"))
 async def start(message: Message):
