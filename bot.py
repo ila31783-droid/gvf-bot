@@ -116,6 +116,13 @@ feed_index = {}
 current_feed = {}  # user_id -> food_id
 my_index = {}
 
+# ---------- CANCEL ----------
+
+@router.message(lambda m: m.text == "❌ Отмена")
+async def cancel_any(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Действие отменено", reply_markup=main_keyboard)
+
 # ---------- START ----------
 
 @router.message(CommandStart())
