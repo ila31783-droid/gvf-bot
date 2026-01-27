@@ -1,17 +1,37 @@
 import asyncio
 import os
+import logging
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
+
 router = Router()
+
+APP_VERSION = "step1-2026-01-28a"
 
 # ============ CONFIG (env first) ============
 # Put these in Railway Variables / local .env (if you use python-dotenv)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 TECH_MODE = os.getenv("TECH_MODE", "false").strip().lower() in {"1", "true", "yes", "y"}
+
+logging.basicConfig(level=logging.INFO)
+railway_env = os.getenv("RAILWAY_ENVIRONMENT", "")
+logging.info("[boot] RAILWAY_ENVIRONMENT=%r", railway_env)
+logging.info("[boot] APP_VERSION=%s", APP_VERSION)
+logging.info("[boot] BOT_TOKEN present key=%s len=%d", "BOT_TOKEN" in os.environ, len(os.getenv("BOT_TOKEN", "")))
+logging.info(
+    "[boot] env keys (filtered)=%s",
+    sorted(
+        {
+            k
+            for k in os.environ.keys()
+            if "TOKEN" in k or k in {"BOT_TOKEN", "ADMIN_ID", "TECH_MODE"}
+        }
+    ),
+)
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is empty. Set BOT_TOKEN environment variable.")
@@ -55,9 +75,15 @@ async def help_cmd(message: Message):
     )
 
 
-@router.message(~Command(), ~F.contact)
+@router.message()
 async def tech_guard(message: Message):
     """If TECH_MODE=true, block all non-admin messages except commands/contact."""
+    # Skip contacts and any /commands
+    if message.contact:
+        return
+    if message.text and message.text.startswith("/"):
+        return
+
     if not TECH_MODE:
         return
 
