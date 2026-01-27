@@ -13,7 +13,6 @@ from aiogram.types import (
     InlineKeyboardButton,
     CallbackQuery
 )
-from aiogram.enums import ChatAction
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -212,34 +211,37 @@ async def start(message: Message):
             )
         )
         db.commit()
-
         await message.answer(
-    "👋 Добро пожаловать в ГВФ Маркет\n\n"
-    "⚠️ ВАЖНО\n"
-    "Для работы бота необходимо поделиться контактом.\n\n"
-    "Без контакта:\n"
-    "❌ нельзя писать продавцам\n"
-    "❌ нельзя продавать еду и вещи\n\n"
-    "📱 Нажми кнопку ниже, чтобы продолжить 👇",
-    reply_markup=contact_keyboard
-)
+            "⚠️ Бот в BETA\n\n"
+            "Для работы бота ОБЯЗАТЕЛЬНО нужно поделиться контактом 📱\n"
+            "Без этого покупатели и продавцы не смогут связаться друг с другом.",
+            reply_markup=contact_keyboard
+        )
+        return
 
-    await message.answer(
-        "👋 С возвращением в ГВФ Маркет\n\n"
-        "Выбирай, что тебе нужно 👇",
-        reply_markup=main_keyboard
+    cursor.execute(
+        "SELECT phone FROM users WHERE user_id = ?",
+        (message.from_user.id,)
     )
+    phone = cursor.fetchone()
+
+    if not phone or not phone[0]:
+        await message.answer(
+            "⚠️ Для работы бота нужно поделиться контактом 📱",
+            reply_markup=contact_keyboard
+        )
+        return
 
 
 # Обработка контакта
 @dp.message(F.contact)
 async def save_contact(message: Message):
     cursor.execute(
-        "INSERT OR REPLACE INTO users (user_id, username, phone) VALUES (?, ?, ?)",
+        "UPDATE users SET phone = ?, username = ? WHERE user_id = ?",
         (
-            message.from_user.id,
+            message.contact.phone_number,
             message.from_user.username,
-            message.contact.phone_number
+            message.from_user.id
         )
     )
     db.commit()
@@ -330,10 +332,6 @@ async def items_menu(message: Message):
         reply_markup=items_keyboard
     )
 
-# Обработчик кнопки "📋 Смотреть вещи"
-@dp.message(lambda m: m.text == "📋 Смотреть вещи")
-async def view_items_entry(message: Message):
-    await view_items(message)
 
 @dp.message(lambda m: m.text == "➕ Добавить вещь")
 async def add_item(message: Message, state: FSMContext):
@@ -688,22 +686,10 @@ async def like_food(callback: CallbackQuery):
     else:
         buyer_text += "❌ Данные покупателя не найдены\n"
 
-    seller_keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👀 Посмотреть покупателя",
-                    callback_data=f"view_buyer:{buyer.id}"
-                )
-            ]
-        ]
-    )
-
     try:
         await bot.send_message(
             seller_id,
-            buyer_text,
-            reply_markup=seller_keyboard
+            buyer_text
         )
     except:
         pass
@@ -758,19 +744,83 @@ async def my_food(message: Message):
         )
         return
 
-    food_id, photo, price, desc, dorm, loc = foods[0]
+    my_ads_index[message.from_user.id] = 0
+    await show_my_food(message.from_user.id, message)
+
+
+# ====== СВАЙПЫ ДЛЯ МОЕЙ ЕДЫ ======
+async def show_my_food(user_id: int, message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description, dorm, location "
+        "FROM food WHERE user_id = ? ORDER BY id DESC",
+        (user_id,)
+    )
+    foods = cursor.fetchall()
+
+    index = my_ads_index.get(user_id, 0)
+
+    if index >= len(foods):
+        index = 0
+        my_ads_index[user_id] = 0
+
+    food_id, photo, price, desc, dorm, loc = foods[index]
+    total = len(foods)
+    current = index + 1
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="my_food_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_food:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="my_food_next")
+            ]
+        ]
+    )
 
     await message.answer_photo(
         photo=photo,
         caption=(
-            f"🍔 Твоя еда\n\n"
-            f"🏠 Общага: {dorm}\n"
+            f"🍔 Моё объявление\n"
+            f"📍 {current} / {total}\n\n"
+            f"🏠 Общежитие: {dorm}\n"
             f"📍 {loc}\n"
             f"💰 {price}\n\n"
             f"{desc}"
         ),
-        reply_markup=main_keyboard
+        reply_markup=keyboard
     )
+
+
+# ===== CALLBACK-ХЕНДЛЕРЫ СВАЙПОВ МОЯ ЕДА =====
+@dp.callback_query(lambda c: c.data == "my_food_next")
+async def my_food_next(callback: CallbackQuery):
+    my_ads_index[callback.from_user.id] = my_ads_index.get(callback.from_user.id, 0) + 1
+    await callback.message.delete()
+    await show_my_food(callback.from_user.id, callback.message)
+
+
+@dp.callback_query(lambda c: c.data == "my_food_prev")
+async def my_food_prev(callback: CallbackQuery):
+    my_ads_index[callback.from_user.id] = max(
+        0, my_ads_index.get(callback.from_user.id, 0) - 1
+    )
+    await callback.message.delete()
+    await show_my_food(callback.from_user.id, callback.message)
+
+
+# ===== CALLBACK ДЛЯ УДАЛЕНИЯ ЕДЫ =====
+@dp.callback_query(lambda c: c.data.startswith("delete_food:"))
+async def delete_food(callback: CallbackQuery):
+    food_id = int(callback.data.split(":")[1])
+
+    cursor.execute(
+        "DELETE FROM food WHERE id = ? AND user_id = ?",
+        (food_id, callback.from_user.id)
+    )
+    db.commit()
+
+    await callback.message.delete()
+    await callback.answer("🗑 Объявление удалено")
 
 
 # =========== МОИ ВЕЩИ (СВАЙПЫ) ===========
@@ -865,46 +915,6 @@ async def delete_item(callback: CallbackQuery):
 # ================== ADMIN ==================
 
 
-@dp.callback_query(lambda c: c.data == "my_next")
-async def my_next(callback: CallbackQuery):
-    my_ads_index[callback.from_user.id] += 1
-
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.UPLOAD_PHOTO
-    )
-
-    await callback.message.delete()
-    await show_my_ad(callback.from_user.id, callback.message)
-
-
-@dp.callback_query(lambda c: c.data == "my_prev")
-async def my_prev(callback: CallbackQuery):
-    my_ads_index[callback.from_user.id] = max(
-        0, my_ads_index[callback.from_user.id] - 1
-    )
-
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.UPLOAD_PHOTO
-    )
-
-    await callback.message.delete()
-    await show_my_ad(callback.from_user.id, callback.message)
-
-
-@dp.callback_query(lambda c: c.data.startswith("delete:"))
-async def delete_ad(callback: CallbackQuery):
-    food_id = int(callback.data.split(":")[1])
-
-    cursor.execute(
-        "DELETE FROM food WHERE id = ? AND user_id = ?",
-        (food_id, callback.from_user.id)
-    )
-    db.commit()
-
-    await callback.message.delete()
-    await callback.answer("🗑 Удалено")
 
 
 # ================== ADMIN ==================
@@ -1288,34 +1298,3 @@ async def study_soon(message: Message):
         "помощь с заданиями и услуги 👀",
         reply_markup=main_keyboard
     )
-# Новый обработчик для просмотра покупателя
-@dp.callback_query(lambda c: c.data.startswith("view_buyer:"))
-async def view_buyer(callback: CallbackQuery):
-    buyer_id = int(callback.data.split(":")[1])
-
-    cursor.execute(
-        "SELECT username, phone FROM users WHERE user_id = ?",
-        (buyer_id,)
-    )
-    row = cursor.fetchone()
-
-    if not row:
-        await callback.answer("❌ Пользователь не найден", show_alert=True)
-        return
-
-    username, phone = row
-
-    text = "👤 Потенциальный покупатель\n\n"
-
-    if username:
-        text += f"🔗 Telegram: https://t.me/{username}\n"
-    else:
-        text += "❌ Username не указан\n"
-
-    if phone:
-        text += f"📱 Телефон: {phone}"
-    else:
-        text += "❌ Телефон не указан"
-
-    await callback.answer()
-    await callback.message.answer(text)
