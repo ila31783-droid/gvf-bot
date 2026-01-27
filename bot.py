@@ -77,14 +77,6 @@ CREATE TABLE IF NOT EXISTS views (
     UNIQUE(user_id, food_id)
 )
 """)
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS dialogs (
-    buyer_id INTEGER,
-    seller_id INTEGER,
-    food_id INTEGER,
-    active INTEGER DEFAULT 1
-)
-""")
 db.commit()
 
 
@@ -169,9 +161,6 @@ class AddItem(StatesGroup):
     location = State()
 
 
-# FSM для сообщений в диалоге
-class DialogMessage(StatesGroup):
-    text = State()
 
 
 # ================== BROADCAST FSM ==================
@@ -994,71 +983,6 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-# ================== DIALOGS ==================
-
-@dp.callback_query(lambda c: c.data.startswith("msg:"))
-async def start_dialog(callback: CallbackQuery, state: FSMContext):
-    food_id = int(callback.data.split(":")[1])
-
-    await state.update_data(food_id=food_id)
-    await state.set_state(DialogMessage.text)
-
-    await callback.message.answer(
-        "✍️ Напиши сообщение продавцу.\n\n❌ Отмена — чтобы выйти",
-        reply_markup=cancel_keyboard
-    )
-
-
-@dp.message(DialogMessage.text)
-async def send_dialog_message(message: Message, state: FSMContext):
-    data = await state.get_data()
-    food_id = data["food_id"]
-    buyer_id = message.from_user.id
-
-    cursor.execute(
-        "SELECT seller_id FROM dialogs WHERE buyer_id = ? AND food_id = ? AND active = 1",
-        (buyer_id, food_id)
-    )
-    row = cursor.fetchone()
-
-    if not row:
-        await message.answer("❌ Диалог не найден", reply_markup=main_keyboard)
-        await state.clear()
-        return
-
-    seller_id = row[0]
-
-    await bot.send_message(
-        seller_id,
-        "📩 Новое сообщение по объявлению:\n\n"
-        f"{message.text}\n\n"
-        "✍️ Ответь на это сообщение — бот перешлёт ответ"
-    )
-
-    await message.answer("✅ Сообщение отправлено", reply_markup=main_keyboard)
-    await state.clear()
-
-
-@dp.message(lambda m: m.reply_to_message and "Новое сообщение по объявлению" in m.reply_to_message.text)
-async def reply_from_seller(message: Message):
-    seller_id = message.from_user.id
-
-    cursor.execute(
-        "SELECT buyer_id FROM dialogs WHERE seller_id = ? AND active = 1 ORDER BY ROWID DESC LIMIT 1",
-        (seller_id,)
-    )
-    row = cursor.fetchone()
-
-    if not row:
-        return
-
-    buyer_id = row[0]
-
-    await bot.send_message(
-        buyer_id,
-        "📩 Ответ от продавца:\n\n"
-        f"{message.text}"
-    )
 # ================== ITEMS SWIPE VIEW ==================
 
 # Смотреть вещи (свайпы)
