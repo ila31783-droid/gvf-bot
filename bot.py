@@ -3,6 +3,7 @@ import sqlite3
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram import F
 from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
@@ -1231,7 +1232,7 @@ async def reject_item(callback: CallbackQuery):
 
     await callback.answer("❌ Отклонено")
     await callback.message.delete()
-@dp.message(lambda m: m.text == "👤 Профиль")
+@dp.message(F.text == "👤 Профиль")
 async def profile(message: Message):
     cursor.execute(
         "SELECT phone, first_seen FROM users WHERE user_id = ?",
@@ -1257,11 +1258,6 @@ async def profile(message: Message):
         reply_markup=main_keyboard
     )
 
-# Глобальный обработчик для профиля (должен быть ниже profile)
-@dp.message(lambda m: m.text == "👤 Профиль")
-async def profile_any_state(message: Message, state: FSMContext):
-    await state.clear()
-    await profile(message)
 
 # Обработчик кнопки "📚 Учёба (скоро)"
 @dp.message(lambda m: m.text == "📚 Учёба (скоро)")
