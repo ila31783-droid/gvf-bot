@@ -28,9 +28,8 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 # ================== DATABASE ==================
-DB_PATH = "/data/database.db"
-
-os.makedirs("/data", exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 db = sqlite3.connect(DB_PATH)
 cursor = db.cursor()
@@ -598,39 +597,17 @@ async def show_food(user_id: int, message: Message):
 
 @dp.callback_query(lambda c: c.data == "food_next")
 async def food_next(callback: CallbackQuery):
-    feed_index[callback.from_user.id] += 1
-
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.UPLOAD_PHOTO
-    )
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.TYPING
-    )
-    await asyncio.sleep(0.2)
-
+    user_id = callback.from_user.id
+    feed_index[user_id] = feed_index.get(user_id, 0) + 1
     await callback.message.delete()
-    await show_food(callback.from_user.id, callback.message)
+    await show_food(user_id, callback.message)
 
 @dp.callback_query(lambda c: c.data == "food_prev")
 async def food_prev(callback: CallbackQuery):
-    feed_index[callback.from_user.id] = max(
-        0, feed_index.get(callback.from_user.id, 0) - 1
-    )
-
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.UPLOAD_PHOTO
-    )
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.TYPING
-    )
-    await asyncio.sleep(0.2)
-
+    user_id = callback.from_user.id
+    feed_index[user_id] = max(0, feed_index.get(user_id, 0) - 1)
     await callback.message.delete()
-    await show_food(callback.from_user.id, callback.message)
+    await show_food(user_id, callback.message)
 
 
 @dp.callback_query(lambda c: c.data.startswith("like:"))
@@ -1268,23 +1245,28 @@ async def view_buyer(callback: CallbackQuery):
     buyer_id = int(callback.data.split(":")[1])
 
     cursor.execute(
-        "SELECT username FROM users WHERE user_id = ?",
+        "SELECT username, phone FROM users WHERE user_id = ?",
         (buyer_id,)
     )
     row = cursor.fetchone()
 
-    if row and row[0]:
-        text = (
-            "👤 Потенциальный покупатель\n\n"
-            f"👉 https://t.me/{row[0]}\n\n"
-            "Можешь написать ему напрямую 👆"
-        )
+    if not row:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    username, phone = row
+
+    text = "👤 Потенциальный покупатель\n\n"
+
+    if username:
+        text += f"🔗 Telegram: https://t.me/{username}\n"
     else:
-        text = (
-            "👤 Потенциальный покупатель\n\n"
-            "❌ У пользователя нет username\n"
-            "Он может написать тебе сам"
-        )
+        text += "❌ Username не указан\n"
+
+    if phone:
+        text += f"📱 Телефон: {phone}"
+    else:
+        text += "❌ Телефон не указан"
 
     await callback.answer()
     await callback.message.answer(text)
