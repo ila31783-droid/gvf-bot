@@ -13,7 +13,7 @@ ADMIN_ID = 7204477763
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db", "database.db")
 
-TECH_MODE = True  # 🔧 ТЕХРАБОТЫ
+TECH_MODE = False  # 🔧 ТЕХРАБОТЫ
 
 # ================= DB =================
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
