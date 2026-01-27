@@ -16,7 +16,7 @@ from aiogram.types import (
     InputFile,
 )
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "ВСТАВЬ_ТОКЕН"
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
 ADMIN_ID = 7204477763  # твой TG ID
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
