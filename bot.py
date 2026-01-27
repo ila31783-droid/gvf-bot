@@ -27,6 +27,18 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 
+# ================== MAINTENANCE MIDDLEWARE ==================
+@dp.message(F.from_user.id != ADMIN_ID)
+async def maintenance_guard(message: Message):
+    if MAINTENANCE:
+        await message.answer(
+            "🛠 Ведутся технические работы\n\n"
+            "Бот временно недоступен.\n"
+            "Скоро всё заработает 🙏"
+        )
+        return
+
+
 # ================== DATABASE ==================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -238,16 +250,6 @@ async def start(message: Message):
         return
 
 
-# ================== MAINTENANCE MODE HANDLER ==================
-@dp.message()
-async def maintenance_mode(message: Message):
-    if MAINTENANCE and message.from_user.id != ADMIN_ID:
-        await message.answer(
-            "🛠 Ведутся технические работы\n\n"
-            "Бот временно недоступен.\n"
-            "Скоро всё заработает 🙏"
-        )
-        return
 
 
 # Обработка контакта
