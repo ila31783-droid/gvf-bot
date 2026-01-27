@@ -1,449 +1,361 @@
-MAINTENANCE_MODE = True
 import asyncio
+import logging
 import os
 import sqlite3
-from typing import Optional
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, Text
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram import Bot, Dispatcher, Router
+from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
-    CallbackQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    InputFile,
+    CallbackQuery
 )
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
-ADMIN_ID = 7204477763  # твой TG ID
+# ================== CONFIG ==================
+
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "ВСТАВЬ_ТОКЕН"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "..", "db", "database.db")
+DB_DIR = os.path.join(BASE_DIR, "db")
+os.makedirs(DB_DIR, exist_ok=True)
+DB_PATH = os.path.join(DB_DIR, "database.db")
+
+# ================== DATABASE ==================
 
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = db.cursor()
 
-# Ensure tables exist
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        phone TEXT
-    )
-"""
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    phone TEXT
 )
+""")
 
-# --- User helper ---
-def get_user(user_id: int):
-    cursor.execute(
-        "SELECT user_id, username, phone FROM users WHERE user_id = ?",
-        (user_id,)
-    )
-    return cursor.fetchone()
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS food_ads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        photo_file_id TEXT,
-        price TEXT,
-        description TEXT,
-        dorm TEXT,
-        floor_room TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(user_id)
-    )
-"""
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS food (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    photo TEXT,
+    price INTEGER,
+    description TEXT,
+    dorm INTEGER,
+    location TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
+""")
+
 db.commit()
 
+# ================== KEYBOARDS ==================
 
-class FoodStates(StatesGroup):
-    photo = State()
-    price = State()
-    description = State()
-    dorm = State()
-    floor_room = State()
-
-
-food_router = Dispatcher().include_router  # placeholder to avoid linter error
-food_router = Dispatcher().router()  # will be replaced later
-
-
-from aiogram import Router
-
-maintenance_router = Router()
-
-@maintenance_router.message()
-async def maintenance_message(message: Message):
-    await message.answer(
-        "🛠 Технические работы\n\n"
-        "Бот временно недоступен. Мы уже чиним — зайди чуть позже 🙏"
-    )
-
-@maintenance_router.callback_query()
-async def maintenance_callback(callback: CallbackQuery):
-    await callback.answer(
-        "🛠 Технические работы. Попробуй позже 🙏",
-        show_alert=True
-    )
-
-food_router = Router()
-
-# User's feed index storage in memory, keyed by user_id
-user_feed_index = {}
-
-
-# Keyboard for dorm selection
-dorm_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Общежитие 1", callback_data="dorm_1"),
-            InlineKeyboardButton(text="Общежитие 2", callback_data="dorm_2"),
-        ],
-        [
-            InlineKeyboardButton(text="Общежитие 3", callback_data="dorm_3"),
-            InlineKeyboardButton(text="Общежитие 4", callback_data="dorm_4"),
-        ],
-    ]
+contact_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📱 Поделиться номером", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True
 )
 
-# --- Main menu keyboard ---
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🍔 Еда из общаг")],
-        [KeyboardButton(text="📢 Мои объявления")],
-        [KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="🍔 Еда")],
+        [KeyboardButton(text="➕ Добавить еду")],
+        [KeyboardButton(text="📢 Мои объявления"), KeyboardButton(text="👤 Профиль")]
     ],
-    resize_keyboard=True,
+    resize_keyboard=True
 )
 
-# Keyboard for like/dislike on ads
-def get_swipe_keyboard() -> InlineKeyboardMarkup:
+cancel_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="❌ Отмена")]],
+    resize_keyboard=True
+)
+
+def feed_kb(food_id: int):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="❤️", callback_data="like"),
-                InlineKeyboardButton(text="👎", callback_data="dislike"),
+                InlineKeyboardButton(text="❤️", callback_data=f"like:{food_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="feed_next")
             ]
         ]
     )
 
-
-# Keyboard for "Мои объявления"
-def get_my_ads_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Удалить объявление", callback_data=f"delete_{ad_id}")]
+my_food_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🗑 Удалить", callback_data="my_delete"),
+            InlineKeyboardButton(text="➡️", callback_data="my_next")
         ]
-    )
+    ]
+)
 
-@dp.message(Command("start"))
+# ================== FSM ==================
+
+class AddFood(StatesGroup):
+    photo = State()
+    price = State()
+    description = State()
+    dorm = State()
+    location = State()
+
+# ================== ROUTER ==================
+
+router = Router()
+feed_index = {}
+current_feed = {}  # user_id -> food_id
+my_index = {}
+
+# ---------- START ----------
+
+@router.message(CommandStart())
 async def start(message: Message):
-    user_id = message.from_user.id
-    username = message.from_user.username
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)",
+        (message.from_user.id, message.from_user.username)
+    )
+    db.commit()
 
-    user = get_user(user_id)
+    cursor.execute("SELECT phone FROM users WHERE user_id = ?", (message.from_user.id,))
+    phone = cursor.fetchone()[0]
 
-    if not user:
-        cursor.execute(
-            "INSERT INTO users (user_id, username) VALUES (?, ?)",
-            (user_id, username)
-        )
-        db.commit()
-
-    user = get_user(user_id)
-
-    if user[2]:  # phone already exists
+    if phone:
         await message.answer(
-            "👋 Добро пожаловать в ГВФ Маркет\n\n"
-            "Это бета-версия, возможны ошибки.\n"
-            "Выбирай раздел 👇",
+            "👋 Добро пожаловать!\n\n⚠️ Бот работает в BETA",
             reply_markup=main_keyboard
         )
-        return
+    else:
+        await message.answer(
+            "👋 Добро пожаловать!\n\n"
+            "Чтобы пользоваться ботом — поделись номером",
+            reply_markup=contact_keyboard
+        )
 
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📱 Поделиться номером", request_contact=True)]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
+# ---------- SAVE CONTACT ----------
 
-    await message.answer(
-        "📱 Чтобы пользоваться ботом, нужно подтвердить номер.\n"
-        "Номер сохраняется один раз и больше не запрашивается.",
-        reply_markup=kb
-    )
-
-@dp.message(F.contact)
+@router.message(lambda m: m.contact is not None)
 async def save_contact(message: Message):
-    if not message.contact or message.contact.user_id != message.from_user.id:
-        await message.answer("❌ Нужно отправить свой номер.")
-        return
-
-    phone = message.contact.phone_number
-
     cursor.execute(
         "UPDATE users SET phone = ? WHERE user_id = ?",
-        (phone, message.from_user.id)
+        (message.contact.phone_number, message.from_user.id)
     )
     db.commit()
+    await message.answer("✅ Номер сохранён", reply_markup=main_keyboard)
 
-    await message.answer(
-        "✅ Номер сохранён!\n\n"
-        "Теперь ты можешь пользоваться ботом 👇",
-        reply_markup=main_keyboard
+# ---------- ADD FOOD ----------
+
+@router.message(lambda m: m.text == "➕ Добавить еду")
+async def add_food_start(message: Message, state: FSMContext):
+    await state.set_state(AddFood.photo)
+    await message.answer("📸 Отправь фото еды", reply_markup=cancel_keyboard)
+
+@router.message(AddFood.photo)
+async def add_food_photo(message: Message, state: FSMContext):
+    if not message.photo:
+        await message.answer("❌ Нужно фото")
+        return
+    await state.update_data(photo=message.photo[-1].file_id)
+    await state.set_state(AddFood.price)
+    await message.answer("💰 Цена?")
+
+@router.message(AddFood.price)
+async def add_food_price(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("❌ Цена числом")
+        return
+    await state.update_data(price=int(message.text))
+    await state.set_state(AddFood.description)
+    await message.answer("📝 Описание")
+
+@router.message(AddFood.description)
+async def add_food_desc(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(AddFood.dorm)
+    await message.answer("🏠 Номер общаги (3 / 4 / 5)")
+
+@router.message(AddFood.dorm)
+async def add_food_dorm(message: Message, state: FSMContext):
+    if message.text not in ["3", "4", "5"]:
+        await message.answer("❌ Только 3, 4 или 5")
+        return
+    await state.update_data(dorm=int(message.text))
+    await state.set_state(AddFood.location)
+    await message.answer("📍 Этаж и комната")
+
+@router.message(AddFood.location)
+async def add_food_finish(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    cursor.execute("""
+        INSERT INTO food (user_id, photo, price, description, dorm, location)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        message.from_user.id,
+        data["photo"],
+        data["price"],
+        data["description"],
+        data["dorm"],
+        message.text
+    ))
+    db.commit()
+
+    await state.clear()
+    await message.answer("✅ Еда добавлена", reply_markup=main_keyboard)
+
+# ---------- VIEW FOOD ----------
+
+@router.message(lambda m: m.text == "🍔 Еда")
+async def view_food(message: Message):
+    feed_index[message.from_user.id] = 0
+    await show_feed(message)
+
+async def show_feed(message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description FROM food ORDER BY id DESC"
+    )
+    foods = cursor.fetchall()
+
+    idx = feed_index.get(message.from_user.id, 0)
+    if idx >= len(foods):
+        await message.answer("🍽 Больше еды нет")
+        return
+
+    food_id, photo, price, desc = foods[idx]
+    current_feed[message.from_user.id] = food_id
+
+    await message.answer_photo(
+        photo=photo,
+        caption=f"💰 {price}\n📝 {desc}",
+        reply_markup=feed_kb(food_id)
     )
 
+@router.callback_query(lambda c: c.data == "feed_next")
+async def feed_next(callback: CallbackQuery):
+    feed_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_feed(callback.message)
 
-@food_router.message(F.text & ~F.command, state=FoodStates.price)
-async def process_price(message: Message, state: FSMContext):
-    price = message.text.strip()
-    if not price:
-        await message.answer("Цена не может быть пустой. Введите цену.")
+# ---------- LIKE + NOTIFY SELLER ----------
+
+@router.callback_query(lambda c: c.data.startswith("like:"))
+async def feed_like(callback: CallbackQuery, bot: Bot):
+    food_id = int(callback.data.split(":")[1])
+
+    cursor.execute("""
+        SELECT f.user_id, f.location
+        FROM food f
+        WHERE f.id = ?
+    """, (food_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        await callback.answer("Объявление не найдено")
         return
-    await state.update_data(price=price)
-    await message.answer("📝 Введите описание еды.")
-    await state.set_state(FoodStates.description)
 
+    seller_id, location = row
 
-@food_router.message(F.text & ~F.command, state=FoodStates.description)
-async def process_description(message: Message, state: FSMContext):
-    description = message.text.strip()
-    if not description:
-        await message.answer("Описание не может быть пустым. Введите описание.")
+    # сообщение покупателю
+    await callback.message.answer(
+        f"📍 Где забрать:\n{location}"
+    )
+
+    # уведомление продавцу
+    if seller_id != callback.from_user.id:
+        await bot.send_message(
+            seller_id,
+            "❤️ Интерес к объявлению\n\n"
+            "Кто-то заинтересовался твоей едой.\n"
+            "Зайди в бота и жди сообщения 👀"
+        )
+
+    await callback.answer("❤️ Отправлено продавцу")
+
+# ---------- MY ADS ----------
+
+@router.message(lambda m: m.text == "📢 Мои объявления")
+async def my_food(message: Message):
+    my_index[message.from_user.id] = 0
+    await show_my_food(message)
+
+async def show_my_food(message: Message):
+    cursor.execute(
+        "SELECT id, photo, price, description FROM food WHERE user_id = ? ORDER BY id DESC",
+        (message.from_user.id,)
+    )
+    foods = cursor.fetchall()
+
+    idx = my_index.get(message.from_user.id, 0)
+
+    if not foods:
+        await message.answer("📭 У тебя нет объявлений")
         return
-    await state.update_data(description=description)
-    await message.answer("🏢 Выберите общежитие.", reply_markup=dorm_keyboard)
-    await state.set_state(FoodStates.dorm)
 
+    if idx >= len(foods):
+        await message.answer("📭 Это все объявления")
+        return
 
-@food_router.callback_query(F.data.startswith("dorm_"), state=FoodStates.dorm)
-async def process_dorm(callback: CallbackQuery, state: FSMContext):
-    dorm = callback.data.split("_", 1)[1]
-    await state.update_data(dorm=dorm)
-    await callback.message.answer("🏠 Введите этаж и комнату (например, 3/45).")
-    await state.set_state(FoodStates.floor_room)
+    food_id, photo, price, desc = foods[idx]
+    await message.answer_photo(
+        photo=photo,
+        caption=f"💰 {price}\n📝 {desc}",
+        reply_markup=my_food_keyboard
+    )
+
+@router.callback_query(lambda c: c.data == "my_next")
+async def my_next(callback: CallbackQuery):
+    my_index[callback.from_user.id] += 1
+    await callback.message.delete()
+    await show_my_food(callback.message)
+
+@router.callback_query(lambda c: c.data == "my_delete")
+async def my_delete(callback: CallbackQuery):
+    idx = my_index.get(callback.from_user.id, 0)
+
+    cursor.execute(
+        "SELECT id FROM food WHERE user_id = ? ORDER BY id DESC",
+        (callback.from_user.id,)
+    )
+    foods = cursor.fetchall()
+
+    if idx < len(foods):
+        cursor.execute("DELETE FROM food WHERE id = ?", (foods[idx][0],))
+        db.commit()
+        await callback.message.answer("🗑 Объявление удалено")
+
+    await callback.message.delete()
+    await show_my_food(callback.message)
     await callback.answer()
 
+# ---------- PROFILE ----------
 
-@food_router.message(F.text & ~F.command, state=FoodStates.floor_room)
-async def process_floor_room(message: Message, state: FSMContext):
-    floor_room = message.text.strip()
-    if not floor_room:
-        await message.answer("Поле этаж/комната не может быть пустым. Введите этаж и комнату.")
-        return
-    data = await state.get_data()
-    user_id = message.from_user.id
-
-    cursor.execute(
-        """
-        INSERT INTO food_ads (user_id, photo_file_id, price, description, dorm, floor_room)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            user_id,
-            data["photo_file_id"],
-            data["price"],
-            data["description"],
-            data["dorm"],
-            floor_room,
-        ),
-    )
-    db.commit()
-
-    await message.answer("✅ Объявление добавлено!")
-    await state.clear()
-
-
-@food_router.message(Text(text="🍔 Еда из общаг"))
-async def show_food_feed(message: Message):
-    user_id = message.from_user.id
-    cursor.execute(
-        "SELECT id FROM food_ads WHERE user_id != ? ORDER BY id DESC", (user_id,)
-    )
-    ads = cursor.fetchall()
-
-    if not ads:
-        await message.answer("Пока нет объявлений от других пользователей.")
-        return
-
-    user_feed_index[user_id] = 0
-    await send_food_ad(message.chat.id, user_id)
-
-
-async def send_food_ad(chat_id: int, user_id: int):
-    index = user_feed_index.get(user_id, 0)
-    cursor.execute(
-        "SELECT id, photo_file_id, price, description FROM food_ads WHERE user_id != ? ORDER BY id DESC",
-        (user_id,),
-    )
-    ads = cursor.fetchall()
-    if not ads:
-        return
-    if index < 0 or index >= len(ads):
-        # Reset index if out of bounds
-        user_feed_index[user_id] = 0
-        index = 0
-    ad = ads[index]
-    ad_id, photo_file_id, price, description = ad
-
-    caption = f"💰 Цена: {price}\n📝 Описание: {description}"
-    keyboard = get_swipe_keyboard()
-    await Bot(BOT_TOKEN).send_photo(chat_id, photo_file_id, caption=caption, reply_markup=keyboard)
-
-
-@food_router.callback_query(Text(text=["like", "dislike"]))
-async def handle_swipe(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    action = callback.data
-    index = user_feed_index.get(user_id, 0)
-
-    cursor.execute(
-        "SELECT id, user_id, photo_file_id, price, description, dorm, floor_room FROM food_ads WHERE user_id != ? ORDER BY id DESC",
-        (user_id,),
-    )
-    ads = cursor.fetchall()
-    if not ads:
-        await callback.answer("Объявлений нет.", show_alert=True)
-        return
-
-    if index < 0 or index >= len(ads):
-        user_feed_index[user_id] = 0
-        index = 0
-
-    ad = ads[index]
-    ad_id, ad_user_id, photo_file_id, price, description, dorm, floor_room = ad
-
-    if action == "like":
-        # Show location info after like
-        location_text = f"🏢 Общежитие: {dorm}\n🏠 Этаж/Комната: {floor_room}"
-        # notify seller about interest
-        cursor.execute(
-            "SELECT username FROM users WHERE user_id = ?",
-            (ad_user_id,)
-        )
-        seller = cursor.fetchone()
-
-        buyer_username = callback.from_user.username
-        if seller and buyer_username:
-            try:
-                await Bot(BOT_TOKEN).send_message(
-                    ad_user_id,
-                    "❤️ Интерес к твоему объявлению!\n\n"
-                    f"👤 Покупатель: @{buyer_username}\n"
-                    "Можешь написать ему напрямую в Telegram."
-                )
-            except Exception:
-                pass
-        await callback.message.edit_caption(
-            caption=(
-                f"💰 Цена: {price}\n"
-                f"📝 Описание: {description}\n\n"
-                f"{location_text}"
-            ),
-            reply_markup=None,
-        )
-        await callback.answer("Вы поставили ❤️")
-    else:
-        # dislike: just move on
-        await callback.answer("Вы поставили 👎")
-
-    # Move to next ad
-    user_feed_index[user_id] = index + 1
-    if user_feed_index[user_id] >= len(ads):
-        user_feed_index[user_id] = 0
-        await callback.message.answer("Это было последнее объявление.")
-    else:
-        # Send next ad
-        await send_food_ad(callback.message.chat.id, user_id)
-
-
-@food_router.message(Text(text="📢 Мои объявления"))
-async def my_food_ads(message: Message):
-    user_id = message.from_user.id
-    cursor.execute(
-        "SELECT id, photo_file_id, price, description, dorm, floor_room FROM food_ads WHERE user_id = ? ORDER BY id DESC",
-        (user_id,),
-    )
-    ads = cursor.fetchall()
-
-    if not ads:
-        await message.answer("У вас пока нет объявлений.")
-        return
-
-    for ad in ads:
-        ad_id, photo_file_id, price, description, dorm, floor_room = ad
-        caption = (
-            f"💰 Цена: {price}\n"
-            f"📝 Описание: {description}\n"
-            f"🏢 Общежитие: {dorm}\n"
-            f"🏠 Этаж/Комната: {floor_room}"
-        )
-        keyboard = get_my_ads_keyboard(ad_id)
-        await message.answer_photo(photo_file_id, caption=caption, reply_markup=keyboard)
-
-
-@food_router.callback_query(Text(startswith="delete_"))
-async def delete_food_ad(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    ad_id_str = callback.data.split("_", 1)[1]
-    try:
-        ad_id = int(ad_id_str)
-    except ValueError:
-        await callback.answer("Неверный идентификатор объявления.", show_alert=True)
-        return
-
-    cursor.execute("SELECT user_id FROM food_ads WHERE id = ?", (ad_id,))
-    row = cursor.fetchone()
-    if not row:
-        await callback.answer("Объявление не найдено.", show_alert=True)
-        return
-
-    owner_id = row[0]
-    if owner_id != user_id:
-        await callback.answer("Вы можете удалять только свои объявления.", show_alert=True)
-        return
-
-    cursor.execute("DELETE FROM food_ads WHERE id = ?", (ad_id,))
-    db.commit()
-    await callback.answer("Объявление удалено.")
-    await callback.message.delete()
-
-
-async def main():
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher()
-    if MAINTENANCE_MODE:
-        dp.include_router(maintenance_router)
-    else:
-        dp.include_router(food_router)
-
-    print("✅ BOT STARTED (Food module only)")
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-# --- Profile handler ---
-@dp.message(Text(text="👤 Профиль"))
+@router.message(lambda m: m.text == "👤 Профиль")
 async def profile(message: Message):
-    user = get_user(message.from_user.id)
-
-    if not user or not user[2]:
-        await message.answer("📱 Сначала нужно подтвердить номер через /start")
-        return
-
-    masked_phone = user[2][:-4] + "****"
+    cursor.execute(
+        "SELECT username, phone FROM users WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    u = cursor.fetchone()
 
     await message.answer(
         f"👤 Профиль\n\n"
-        f"🆔 ID: {message.from_user.id}\n"
-        f"📱 Телефон: {masked_phone}\n\n"
-        f"Чтобы изменить номер — нажми /start"
+        f"👤 @{u[0]}\n"
+        f"📱 {u[1]}"
     )
+
+# ================== APP ==================
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+    print("✅ BOT STARTED")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
