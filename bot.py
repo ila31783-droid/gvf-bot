@@ -69,11 +69,20 @@ CREATE TABLE IF NOT EXISTS users (
     first_seen INTEGER
 )
 """)
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS views (
     user_id INTEGER,
     food_id INTEGER,
     UNIQUE(user_id, food_id)
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS likes (
+    food_id INTEGER,
+    buyer_id INTEGER,
+    seller_id INTEGER,
+    created_at INTEGER
 )
 """)
 db.commit()
@@ -614,6 +623,7 @@ async def food_prev(callback: CallbackQuery):
 
 
 
+
 @dp.callback_query(lambda c: c.data.startswith("like:"))
 async def like_food(callback: CallbackQuery):
     food_id = int(callback.data.split(":")[1])
@@ -621,11 +631,7 @@ async def like_food(callback: CallbackQuery):
 
     cursor.execute(
         """
-        SELECT 
-            food.user_id,
-            food.dorm,
-            food.location,
-            users.username
+        SELECT food.user_id, food.dorm, food.location, users.username
         FROM food
         LEFT JOIN users ON food.user_id = users.user_id
         WHERE food.id = ?
@@ -640,44 +646,69 @@ async def like_food(callback: CallbackQuery):
 
     seller_id, dorm, location, seller_username = row
 
-    # ПОКУПАТЕЛЮ
-    text = (
+    cursor.execute(
+        "INSERT INTO likes (food_id, buyer_id, seller_id, created_at) VALUES (?, ?, ?, ?)",
+        (food_id, buyer.id, seller_id, int(asyncio.get_event_loop().time()))
+    )
+    db.commit()
+
+    buyer_text = (
         "📍 Где забрать еду\n\n"
         f"🏠 Общежитие: {dorm}\n"
         f"📍 Место: {location}\n\n"
     )
 
     if seller_username:
-        text += f"👤 Продавец: https://t.me/{seller_username}"
+        buyer_text += f"👤 Продавец: https://t.me/{seller_username}"
     else:
-        text += "👤 Продавец: username не указан"
+        buyer_text += "👤 Продавец: username не указан"
 
-    await callback.message.answer(text)
+    await callback.message.answer(buyer_text)
 
-    # ПРОДАВЦУ
-    keyboard = None
-    if buyer.username:
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="✉️ Написать покупателю",
-                        url=f"https://t.me/{buyer.username}"
-                    )
-                ]
+    # Формируем карточку покупателя (ВАРИАНТ А — сразу показываем)
+    cursor.execute(
+        "SELECT username, phone FROM users WHERE user_id = ?",
+        (buyer.id,)
+    )
+    buyer_row = cursor.fetchone()
+
+    buyer_text = "👤 Новый интерес к объявлению\n\n"
+
+    if buyer_row:
+        buyer_username, buyer_phone = buyer_row
+        if buyer_username:
+            buyer_text += f"🔗 Telegram: https://t.me/{buyer_username}\n"
+        else:
+            buyer_text += "❌ Telegram не указан\n"
+
+        if buyer_phone:
+            buyer_text += f"📱 Телефон: {buyer_phone}\n"
+        else:
+            buyer_text += "❌ Телефон не указан\n"
+    else:
+        buyer_text += "❌ Данные покупателя не найдены\n"
+
+    seller_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👀 Посмотреть покупателя",
+                    callback_data=f"view_buyer:{buyer.id}"
+                )
             ]
-        )
+        ]
+    )
 
     try:
         await bot.send_message(
             seller_id,
-            "❤️ Кто-то заинтересовался твоей едой!",
-            reply_markup=keyboard
+            buyer_text,
+            reply_markup=seller_keyboard
         )
     except:
         pass
 
-    await callback.answer("❤️")
+    await callback.answer("❤️ Интерес отправлен")
 
 
 
@@ -1124,28 +1155,18 @@ async def show_item(user_id: int, message: Message):
 
 @dp.callback_query(lambda c: c.data == "item_next")
 async def item_next(callback: CallbackQuery):
-    items_feed_index[callback.from_user.id] += 1
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.TYPING
-    )
-    await asyncio.sleep(0.2)
+    user_id = callback.from_user.id
+    items_feed_index[user_id] = items_feed_index.get(user_id, 0) + 1
     await callback.message.delete()
-    await show_item(callback.from_user.id, callback.message)
+    await show_item(user_id, callback.message)
 
 
 @dp.callback_query(lambda c: c.data == "item_prev")
 async def item_prev(callback: CallbackQuery):
-    items_feed_index[callback.from_user.id] = max(
-        0, items_feed_index.get(callback.from_user.id, 0) - 1
-    )
-    await callback.message.bot.send_chat_action(
-        chat_id=callback.from_user.id,
-        action=ChatAction.TYPING
-    )
-    await asyncio.sleep(0.2)
+    user_id = callback.from_user.id
+    items_feed_index[user_id] = max(0, items_feed_index.get(user_id, 0) - 1)
     await callback.message.delete()
-    await show_item(callback.from_user.id, callback.message)
+    await show_item(user_id, callback.message)
 
 
 @dp.callback_query(lambda c: c.data.startswith("item_like:"))
