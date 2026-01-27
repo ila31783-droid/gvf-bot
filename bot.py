@@ -1,129 +1,96 @@
 import asyncio
 import os
-import sqlite3
 
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.filters import Command
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
-# ================= CONFIG =================
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "8476468855:AAFsZ-gdXPX5k5nnGhxcObjeXLb1g1LZVMo"
-ADMIN_ID = 7204477763
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "db", "database.db")
-
-TECH_MODE = False  # 🔧 ТЕХРАБОТЫ
-
-# ================= DB =================
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-db = sqlite3.connect(DB_PATH, check_same_thread=False)
-cursor = db.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    phone TEXT
-)
-""")
-db.commit()
-
-# ================= BOT =================
-bot = Bot(BOT_TOKEN)
-dp = Dispatcher()
 router = Router()
-dp.include_router(router)
 
-# ================= KEYBOARD =================
-main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="👤 Профиль")],
-    ],
-    resize_keyboard=True
-)
+# ============ CONFIG (env first) ============
+# Put these in Railway Variables / local .env (if you use python-dotenv)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+TECH_MODE = os.getenv("TECH_MODE", "false").strip().lower() in {"1", "true", "yes", "y"}
 
-# Клавиатура для запроса контакта
-contact_keyboard = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="📱 Поделиться номером", request_contact=True)]],
-    resize_keyboard=True,
-    one_time_keyboard=True
-)
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is empty. Set BOT_TOKEN environment variable.")
 
-# ================= START =================
-@router.message(Command("start"))
+# ADMIN_ID can be 0 during early dev; TECH_MODE guard will only apply when ADMIN_ID is set.
+
+# ============ KEYBOARDS ============
+
+def main_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
+            [KeyboardButton(text="🛠 Услуги"), KeyboardButton(text="📢 Мои объявления")],
+            [KeyboardButton(text="ℹ️ Помощь")],
+        ],
+        resize_keyboard=True,
+    )
+
+# ============ HANDLERS ============
+
+@router.message(CommandStart())
 async def start(message: Message):
-    cursor.execute(
-        "INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)",
-        (message.from_user.id, message.from_user.username)
+    await message.answer(
+        "👋 Привет! Это студенческий маркет-бот.\n\n"
+        "Пока что включён *Шаг 1*: каркас, меню и команды.\n"
+        "Дальше добавим регистрацию, объявления и модерацию.",
+        reply_markup=main_kb(),
+        parse_mode="Markdown",
     )
-    db.commit()
 
-    cursor.execute(
-        "SELECT phone FROM users WHERE user_id = ?",
-        (message.from_user.id,)
+
+@router.message(Command("help"))
+@router.message(F.text == "ℹ️ Помощь")
+async def help_cmd(message: Message):
+    await message.answer(
+        "Команды:\n"
+        "/start — главное меню\n"
+        "/help — помощь\n\n"
+        "Разделы скоро будут активны: Еда, Учёба, Услуги, Мои объявления.",
+        reply_markup=main_kb(),
     )
-    phone = cursor.fetchone()[0]
 
-    if not phone:
-        await message.answer(
-            "👋 Добро пожаловать!\n\n"
-            "Чтобы пользоваться ботом, нужно один раз подтвердить номер телефона.",
-            reply_markup=contact_keyboard
-        )
+
+@router.message(~Command(), ~F.contact)
+async def tech_guard(message: Message):
+    """If TECH_MODE=true, block all non-admin messages except commands/contact."""
+    if not TECH_MODE:
+        return
+
+    # If admin id isn't configured, we just block everyone (safe default in tech mode)
+    if ADMIN_ID and message.from_user.id == ADMIN_ID:
         return
 
     await message.answer(
-        "👋 Добро пожаловать!\n\n"
-        "Ты уже зарегистрирован.",
-        reply_markup=main_keyboard
+        "🛠 Бот на технических работах.\n"
+        "Скоро вернёмся — спасибо за терпение 🙏"
     )
 
-# Обработчик получения контакта
-@router.message(F.contact)
-async def save_contact(message: Message):
-    contact = message.contact
 
-    if contact.user_id != message.from_user.id:
-        await message.answer("❌ Нужно отправить свой номер")
-        return
-
-    cursor.execute(
-        "UPDATE users SET phone = ? WHERE user_id = ?",
-        (contact.phone_number, message.from_user.id)
-    )
-    db.commit()
-
+@router.message(F.text.in_({"🍔 Еда", "📚 Учёба", "🛠 Услуги", "📢 Мои объявления"}))
+async def stub_sections(message: Message):
     await message.answer(
-        "✅ Номер сохранён. Теперь можно пользоваться ботом.",
-        reply_markup=main_keyboard
+        "Этот раздел будет подключён на следующих шагах.\n"
+        "Сейчас работает только каркас (Шаг 1).",
+        reply_markup=main_kb(),
     )
 
-# ================= PROFILE =================
-@router.message(F.text == "👤 Профиль")
-async def profile(message: Message):
-    cursor.execute(
-        "SELECT username, phone FROM users WHERE user_id = ?",
-        (message.from_user.id,)
-    )
-    row = cursor.fetchone()
 
-    if not row:
-        await message.answer("❌ Профиль не найден")
-        return
+# ============ APP ENTRYPOINT ============
 
-    username, phone = row
+async def main() -> None:
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher()
+    dp.include_router(router)
 
-    await message.answer(
-        "👤 Профиль\n\n"
-        f"👤 Username: @{username if username else 'не указан'}\n"
-        f"📱 Телефон: {phone if phone else 'не указан'}",
-        reply_markup=main_keyboard
-    )
-
-# ================= RUN =================
-async def main():
+    # NOTE: Drop pending updates to avoid processing old messages after redeploy.
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
