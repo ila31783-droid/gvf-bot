@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-     InputMediaPhoto,
+    InputMediaPhoto,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -178,6 +178,8 @@ def user_link_md(user_id: int, username: Optional[str], label: str) -> str:
 def chat_url(user_id: int, username: Optional[str]) -> str:
     return f"tg://user?id={user_id}" if user_id else (f"https://t.me/{username}" if username else "")
 
+# ================= UI / KEYBOARDS =================
+
 START_BTN_TEXT = "▶️ Начать"
 HOME_TEXT = "🏠 Меню"
 
@@ -293,6 +295,20 @@ async def on_contact(message: Message):
     )
 
 
+# ================= GLOBAL CANCEL =================
+
+@router.message(Command("cancel"))
+async def global_cancel(message: Message, state: FSMContext):
+    if await state.get_state() is not None:
+        await state.clear()
+
+    await message.answer(
+        "❌ Действие отменено\n\n🏠 Главное меню",
+        reply_markup=main_menu_ikb(),
+        parse_mode="Markdown",
+    )
+
+
 # ================= MAIN MENU =================
 
 @router.callback_query(F.data == "menu_home")
@@ -301,11 +317,25 @@ async def menu_home(call: CallbackQuery):
         await call.answer("🛠 Техработы", show_alert=True)
         return
 
-    await call.message.edit_text(
-        "🏠 *Главное меню*",
-        reply_markup=main_menu_ikb(),
-        parse_mode="Markdown",
-    )
+    try:
+        # Works if message is text
+        await call.message.edit_text(
+            "🏠 *Главное меню*",
+            reply_markup=main_menu_ikb(),
+            parse_mode="Markdown",
+        )
+    except Exception:
+        # Fallback for photo messages
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        await call.message.answer(
+            "🏠 *Главное меню*",
+            reply_markup=main_menu_ikb(),
+            parse_mode="Markdown",
+        )
+
     await call.answer()
 
 
@@ -332,6 +362,8 @@ async def menu_stub(call: CallbackQuery):
 
 
 # ================= ADS (FOOD) =================
+_food_pos: dict[int, int] = {}
+_my_pos: dict[int, int] = {}
 
 @router.callback_query(F.data == "menu_my")
 async def menu_my(call: CallbackQuery):
@@ -339,7 +371,28 @@ async def menu_my(call: CallbackQuery):
     if not user or not user["is_verified"]:
         await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
         return
-    await call.answer("Скоро подключим 😅", show_alert=True)
+    if await db_is_tech_mode() and call.from_user.id != ADMIN_ID:
+        await call.answer("🛠 Техработы", show_alert=True)
+        return
+
+    async with db_pool().acquire() as conn:
+        ads = await conn.fetch(
+            "SELECT * FROM ads WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50",
+            call.from_user.id,
+        )
+
+    if not ads:
+        await call.message.edit_text(
+            "📭 *У тебя пока нет объявлений*",
+            reply_markup=back_menu_ikb(),
+            parse_mode="Markdown",
+        )
+        await call.answer()
+        return
+
+    _my_pos[call.from_user.id] = 0
+    await show_my_ad(call, ads, 0)
+    await call.answer()
 
 
 async def db_create_food_ad(user_id: int, data: dict) -> int:
@@ -363,7 +416,7 @@ async def db_create_food_ad(user_id: int, data: dict) -> int:
 async def db_list_food_ads() -> list[asyncpg.Record]:
     async with db_pool().acquire() as conn:
         return await conn.fetch(
-            "SELECT * FROM ads WHERE category='food' ORDER BY created_at DESC LIMIT 20"
+            "SELECT * FROM ads WHERE category='food' AND approved=TRUE ORDER BY created_at DESC LIMIT 50"
         )
 
 
@@ -382,12 +435,35 @@ def food_view_ikb(ad_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="⬅️", callback_data="food_prev"),
                 InlineKeyboardButton(text="❤️ Забрать", callback_data=f"food_take:{ad_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="food_next"),
             ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_food")],
             [InlineKeyboardButton(text=HOME_TEXT, callback_data="menu_home")],
         ]
     )
+
+@router.callback_query(F.data.in_({"food_prev", "food_next"}))
+async def food_nav(call: CallbackQuery):
+    user = await db_get_user(call.from_user.id)
+    if not user or not user["is_verified"]:
+        await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
+        return
+
+    ads = await db_list_food_ads()
+    if not ads:
+        await call.answer("Пока нет объявлений", show_alert=True)
+        return
+
+    cur = _food_pos.get(call.from_user.id, 0)
+    if call.data == "food_next":
+        cur = (cur + 1) % len(ads)
+    else:
+        cur = (cur - 1) % len(ads)
+
+    await show_food_at(call, ads, cur)
+    await call.answer()
 # === FOOD SECTION KEYBOARDS ===
 
 def food_section_ikb() -> InlineKeyboardMarkup:
@@ -427,6 +503,47 @@ def _fmt_food(ad: asyncpg.Record) -> str:
         f"\n🆔 ID: `{ad['id']}`"
     )
 
+def _food_caption(ad: asyncpg.Record, idx: int, total: int) -> str:
+    return _fmt_food(ad) + f"\n\n_{idx+1}/{total}_"
+
+
+async def show_food_at(call: CallbackQuery, ads: list[asyncpg.Record], idx: int) -> None:
+    idx = max(0, min(idx, len(ads) - 1))
+    _food_pos[call.from_user.id] = idx
+    ad = ads[idx]
+
+    caption = _food_caption(ad, idx, len(ads))
+    ad_id = int(ad["id"])
+    photo_id = ad.get("photo_file_id")
+
+    # если текущее сообщение уже фото — пробуем edit_media
+    try:
+        if call.message.photo and photo_id:
+            media = InputMediaPhoto(media=photo_id, caption=caption, parse_mode="Markdown")
+            await call.message.edit_media(media=media, reply_markup=food_view_ikb(ad_id))
+            return
+    except Exception:
+        pass
+
+    # иначе удаляем старое и шлём новое фото
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    if photo_id:
+        await call.message.answer_photo(
+            photo=photo_id,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=food_view_ikb(ad_id),
+        )
+    else:
+        await call.message.answer(
+            caption,
+            parse_mode="Markdown",
+            reply_markup=food_view_ikb(ad_id),
+        )
 
 # ================= FOOD FLOW =================
 
@@ -471,13 +588,10 @@ async def food_view(call: CallbackQuery):
         await call.answer()
         return
 
-    ad = ads[0]
-    await call.message.edit_text(
-        _fmt_food(ad),
-        reply_markup=food_view_ikb(ad["id"]),
-        parse_mode="Markdown",
-    )
+    await show_food_at(call, ads, 0)
     await call.answer()
+
+
 
 
 # ==== FOOD ADD FLOW (FSM) ====
@@ -696,7 +810,129 @@ async def food_take(call: CallbackQuery):
 
     await call.answer("Контакты отправлены")
 
+# ================= MY ADS =================
 
+def my_ad_ikb(ad_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data="my_prev"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"my_del:{ad_id}"),
+                InlineKeyboardButton(text="➡️", callback_data="my_next"),
+            ],
+            [InlineKeyboardButton(text=HOME_TEXT, callback_data="menu_home")],
+        ]
+    )
+
+
+def _fmt_my_ad(ad: asyncpg.Record, idx: int, total: int) -> str:
+    return (
+        "📢 *Моё объявление*\n\n"
+        f"💰 Цена: *{ad['price']}*\n"
+        f"🏢 Общага: *{ad['dorm']}*\n"
+        f"📍 Место: *{ad['location']}*\n\n"
+        f"{ad['description'] or ''}\n\n"
+        f"_ {idx+1}/{total} _\n"
+        f"🆔 ID: `{ad['id']}`"
+    )
+
+
+async def show_my_ad(call: CallbackQuery, ads: list[asyncpg.Record], idx: int):
+    idx = max(0, min(idx, len(ads) - 1))
+    _my_pos[call.from_user.id] = idx
+    ad = ads[idx]
+
+    caption = _fmt_my_ad(ad, idx, len(ads))
+    photo_id = ad.get("photo_file_id")
+    ad_id = int(ad["id"])
+
+    try:
+        if call.message.photo and photo_id:
+            media = InputMediaPhoto(
+                media=photo_id,
+                caption=caption,
+                parse_mode="Markdown",
+            )
+            await call.message.edit_media(
+                media=media,
+                reply_markup=my_ad_ikb(ad_id),
+            )
+            return
+    except Exception:
+        pass
+
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    if photo_id:
+        await call.message.answer_photo(
+            photo=photo_id,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=my_ad_ikb(ad_id),
+        )
+    else:
+        await call.message.answer(
+            caption,
+            parse_mode="Markdown",
+            reply_markup=my_ad_ikb(ad_id),
+        )
+
+
+@router.callback_query(F.data.in_({"my_prev", "my_next"}))
+async def my_ads_nav(call: CallbackQuery):
+    async with db_pool().acquire() as conn:
+        ads = await conn.fetch(
+            "SELECT * FROM ads WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50",
+            call.from_user.id,
+        )
+
+    if not ads:
+        await call.answer("Объявлений нет", show_alert=True)
+        return
+
+    cur = _my_pos.get(call.from_user.id, 0)
+    cur = cur + 1 if call.data == "my_next" else cur - 1
+    cur %= len(ads)
+
+    await show_my_ad(call, ads, cur)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("my_del:"))
+async def my_ads_delete(call: CallbackQuery):
+    ad_id = int(call.data.split(":")[1])
+
+    async with db_pool().acquire() as conn:
+        res = await conn.execute(
+            "DELETE FROM ads WHERE id=$1 AND user_id=$2",
+            ad_id,
+            call.from_user.id,
+        )
+
+    if not res.endswith("1"):
+        await call.answer("Не удалось удалить", show_alert=True)
+        return
+
+    async with db_pool().acquire() as conn:
+        ads = await conn.fetch(
+            "SELECT * FROM ads WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50",
+            call.from_user.id,
+        )
+
+    if not ads:
+        await call.message.edit_text(
+            "📭 Все объявления удалены",
+            reply_markup=back_menu_ikb(),
+        )
+        await call.answer()
+        return
+
+    cur = min(_my_pos.get(call.from_user.id, 0), len(ads) - 1)
+    await show_my_ad(call, ads, cur)
+    await call.answer("Удалено ✅")
 
 # ================= ADMIN =================
 
