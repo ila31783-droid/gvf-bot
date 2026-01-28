@@ -263,7 +263,20 @@ async def cmd_start(message: Message):
 
 @router.callback_query(F.data == "start_go")
 async def start_go(call: CallbackQuery):
+    user = await db_get_user(call.from_user.id)
+
     await call.message.delete()
+
+    # Если пользователь уже подтверждён — сразу показываем главное меню
+    if user and user["is_verified"]:
+        await call.message.answer(
+            "🏠 Главное меню",
+            reply_markup=main_menu_ikb(),
+        )
+        await call.answer()
+        return
+
+    # Иначе — просим подтвердить номер
     await call.message.answer(
         "Для работы с ботом нужно подтвердить номер 📱",
         reply_markup=contact_kb(),
@@ -498,7 +511,7 @@ def _fmt_food(ad: asyncpg.Record) -> str:
         "🍔 *Еда*\n\n"
         f"💰 Цена: *{ad['price']}*\n"
         f"🏢 Общага: *{ad['dorm']}*\n"
-        f"📍 Место: *{ad['location']}*\n\n"
+        "📍 Место: *после нажатия ❤️*\n\n"
         f"{ad['description'] or ''}\n"
         f"\n🆔 ID: `{ad['id']}`"
     )
@@ -676,7 +689,7 @@ async def food_add_dorm(message: Message, state: FSMContext):
         return
     await state.update_data(dorm=dorm)
     await state.set_state(FoodAdd.location)
-    await message.answer("📍 Где забрать? (пример: у вахты / 3 этаж кухня)", reply_markup=food_cancel_ikb())
+    await message.answer("📍 Где можно забрать еду? (пример: на тумбе, в кубаре", reply_markup=food_cancel_ikb())
 
 
 @router.message(FoodAdd.location)
@@ -739,6 +752,7 @@ async def food_publish(call: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
+    _food_pos[call.from_user.id] = 0
     await state.clear()
 
     await call.message.answer(
@@ -785,6 +799,7 @@ async def food_take(call: CallbackQuery):
 
     await call.message.answer(
         "❤️ *Контакты продавца*\n\n"
+        f"📍 Где забрать: *{ad['location']}*\n"
         f"📞 `{seller_phone}`\n"
         f"👤 {('@' + seller_username) if seller_username else 'без username'}",
         reply_markup=kb_buyer,
