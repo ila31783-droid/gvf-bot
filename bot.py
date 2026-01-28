@@ -200,7 +200,7 @@ def main_menu_ikb() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📚 Учёба", callback_data="menu_study"),
             ],
             [
-                InlineKeyboardButton(text="🛠 Услуги", callback_data="menu_services"),
+                InlineKeyboardButton(text="🛒 Барахолка", callback_data="menu_market"),
                 InlineKeyboardButton(text="📢 Мои объявления", callback_data="menu_my"),
             ],
             [InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu_help")],
@@ -377,11 +377,26 @@ async def menu_help(call: CallbackQuery):
     await call.answer()
 
 
-@router.callback_query(F.data.in_({"menu_study", "menu_services"}))
-async def menu_stub(call: CallbackQuery):
+
+
+# ================= MARKET (БАРАХОЛКА) =================
+
+@router.callback_query(F.data == "menu_market")
+async def menu_market(call: CallbackQuery):
+    user = await db_get_user(call.from_user.id)
+    if not user or not user["is_verified"]:
+        await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
+        return
+    if await db_is_tech_mode() and call.from_user.id != ADMIN_ID:
+        await call.answer("🛠 Техработы", show_alert=True)
+        return
+
     await call.message.edit_text(
-        "⏳ Этот раздел скоро появится",
+        "🛒 *Барахолка*\n\n"
+        "Здесь можно продавать и покупать вещи, технику и услуги.\n"
+        "Скоро добавим объявления 👀",
         reply_markup=back_menu_ikb(),
+        parse_mode="Markdown",
     )
     await call.answer()
 
