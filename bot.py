@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
+     InputMediaPhoto,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -383,9 +384,35 @@ def food_view_ikb(ad_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="❤️ Забрать", callback_data=f"food_take:{ad_id}"),
             ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_food")],
+            [InlineKeyboardButton(text=HOME_TEXT, callback_data="menu_home")],
+        ]
+    )
+# === FOOD SECTION KEYBOARDS ===
+
+def food_section_ikb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [
-                InlineKeyboardButton(text=HOME_TEXT, callback_data="menu_home"),
+                InlineKeyboardButton(text="📋 Смотреть", callback_data="food_view"),
+                InlineKeyboardButton(text="➕ Добавить", callback_data="food_add"),
             ],
+            [InlineKeyboardButton(text=HOME_TEXT, callback_data="menu_home")],
+        ]
+    )
+
+
+def food_cancel_ikb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="food_cancel")]]
+    )
+
+
+def food_confirm_ikb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Опубликовать", callback_data="food_publish")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="food_cancel")],
         ]
     )
 
@@ -404,8 +431,29 @@ def _fmt_food(ad: asyncpg.Record) -> str:
 # ================= FOOD FLOW =================
 
 
+
+# ==== FOOD SECTION MENU ====
 @router.callback_query(F.data == "menu_food")
-async def food_list(call: CallbackQuery):
+async def food_section(call: CallbackQuery):
+    user = await db_get_user(call.from_user.id)
+    if not user or not user["is_verified"]:
+        await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
+        return
+    if await db_is_tech_mode() and call.from_user.id != ADMIN_ID:
+        await call.answer("🛠 Техработы", show_alert=True)
+        return
+
+    await call.message.edit_text(
+        "🍔 *Раздел: Еда*\n\nВыбери действие:",
+        reply_markup=food_section_ikb(),
+        parse_mode="Markdown",
+    )
+    await call.answer()
+
+
+# ==== FOOD VIEW LATEST ====
+@router.callback_query(F.data == "food_view")
+async def food_view(call: CallbackQuery):
     user = await db_get_user(call.from_user.id)
     if not user or not user["is_verified"]:
         await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
@@ -417,8 +465,8 @@ async def food_list(call: CallbackQuery):
     ads = await db_list_food_ads()
     if not ads:
         await call.message.edit_text(
-            "😔 Пока нет объявлений",
-            reply_markup=back_menu_ikb(),
+            "😔 Пока нет объявлений.\n\nНажми ➕ Добавить и стань первым!",
+            reply_markup=food_section_ikb(),
         )
         await call.answer()
         return
@@ -430,6 +478,161 @@ async def food_list(call: CallbackQuery):
         parse_mode="Markdown",
     )
     await call.answer()
+
+
+# ==== FOOD ADD FLOW (FSM) ====
+@router.callback_query(F.data == "food_add")
+async def food_add_start(call: CallbackQuery, state: FSMContext):
+    user = await db_get_user(call.from_user.id)
+    if not user or not user["is_verified"]:
+        await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
+        return
+    if await db_is_tech_mode() and call.from_user.id != ADMIN_ID:
+        await call.answer("🛠 Техработы", show_alert=True)
+        return
+
+    await state.clear()
+    await state.set_state(FoodAdd.photo)
+
+    await call.message.answer(
+        "📸 Пришли *фото* еды одним сообщением.",
+        parse_mode="Markdown",
+        reply_markup=food_cancel_ikb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "food_cancel")
+async def food_cancel(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    try:
+        await call.message.edit_text(
+            "🍔 *Раздел: Еда*\n\nВыбери действие:",
+            reply_markup=food_section_ikb(),
+            parse_mode="Markdown",
+        )
+    except Exception:
+        await call.message.answer("Ок, отменил ✅", reply_markup=food_section_ikb())
+    await call.answer("Отменено")
+
+
+@router.message(FoodAdd.photo, F.photo)
+async def food_add_photo(message: Message, state: FSMContext):
+    await state.update_data(photo=message.photo[-1].file_id)
+    await state.set_state(FoodAdd.price)
+    await message.answer("💰 Напиши цену (пример: 150 или 100-200)", reply_markup=food_cancel_ikb())
+
+
+@router.message(FoodAdd.photo)
+async def food_add_photo_wrong(message: Message):
+    await message.answer("Нужно отправить *фото* 🙂", parse_mode="Markdown", reply_markup=food_cancel_ikb())
+
+
+@router.message(FoodAdd.price)
+async def food_add_price(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if not text or len(text) > 64:
+        await message.answer("Цена выглядит странно. Напиши короче 🙂", reply_markup=food_cancel_ikb())
+        return
+    await state.update_data(price=text)
+    await state.set_state(FoodAdd.description)
+    await message.answer("📝 Опиши еду (1–5 строк)", reply_markup=food_cancel_ikb())
+
+
+@router.message(FoodAdd.description)
+async def food_add_desc(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if len(text) < 3:
+        await message.answer("Напиши чуть подробнее 🙂", reply_markup=food_cancel_ikb())
+        return
+    await state.update_data(description=text)
+    await state.set_state(FoodAdd.dorm)
+    await message.answer("🏢 Какая общага? (цифра, например 3)", reply_markup=food_cancel_ikb())
+
+
+@router.message(FoodAdd.dorm)
+async def food_add_dorm(message: Message, state: FSMContext):
+    try:
+        dorm = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("Нужно число 🙂", reply_markup=food_cancel_ikb())
+        return
+    if dorm < 0 or dorm > 100:
+        await message.answer("Слишком странное число 😅", reply_markup=food_cancel_ikb())
+        return
+    await state.update_data(dorm=dorm)
+    await state.set_state(FoodAdd.location)
+    await message.answer("📍 Где забрать? (пример: у вахты / 3 этаж кухня)", reply_markup=food_cancel_ikb())
+
+
+@router.message(FoodAdd.location)
+async def food_add_location(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if len(text) < 2:
+        await message.answer("Укажи место чуть точнее 🙂", reply_markup=food_cancel_ikb())
+        return
+
+    await state.update_data(location=text)
+    data = await state.get_data()
+
+    preview = (
+        "✅ *Проверь объявление:*\n\n"
+        f"💰 Цена: *{data.get('price')}*\n"
+        f"🏢 Общага: *{data.get('dorm')}*\n"
+        f"📍 Место: *{data.get('location')}*\n\n"
+        f"📝 Описание:\n{data.get('description')}\n"
+    )
+
+    await state.set_state(FoodAdd.confirm)
+    await message.answer_photo(
+        photo=data.get("photo"),
+        caption=preview,
+        parse_mode="Markdown",
+        reply_markup=food_confirm_ikb(),
+    )
+
+
+@router.callback_query(F.data == "food_publish")
+async def food_publish(call: CallbackQuery, state: FSMContext):
+    user = await db_get_user(call.from_user.id)
+    if not user or not user["is_verified"]:
+        await call.answer("Подтверди номер через ▶️ Начать", show_alert=True)
+        return
+
+    data = await state.get_data()
+    required = ["photo", "price", "description", "dorm", "location"]
+    if not all(k in data and data[k] for k in required):
+        await state.clear()
+        await call.message.answer("⚠️ Данные не найдены, попробуй заново.", reply_markup=food_section_ikb())
+        await call.answer()
+        return
+
+    ad_id = await db_create_food_ad(call.from_user.id, data)
+
+    # Notify admin about new post
+    if ADMIN_ID:
+        try:
+            await call.bot.send_message(
+                ADMIN_ID,
+                "🆕 Новое объявление (Еда) #{}\n".format(ad_id)
+                + "От: {}\n".format(user_link_md(call.from_user.id, call.from_user.username, "продавец"))
+                + "Цена: {}\n".format(data.get("price"))
+                + "Общага: {}\n".format(data.get("dorm"))
+                + "Место: {}\n\n".format(data.get("location"))
+                + (data.get("description") or ""),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+
+    await state.clear()
+
+    await call.message.answer(
+        f"🎉 Готово! Объявление опубликовано ✅\n🆔 ID: `{ad_id}`",
+        parse_mode="Markdown",
+        reply_markup=food_section_ikb(),
+    )
+    await call.answer("Опубликовано")
 
 
 
