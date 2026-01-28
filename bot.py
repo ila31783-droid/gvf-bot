@@ -260,7 +260,8 @@ async def cmd_start(message: Message):
 
 @router.callback_query(F.data == "start_go")
 async def start_go(call: CallbackQuery):
-    await call.message.edit_text(
+    await call.message.delete()
+    await call.message.answer(
         "Для работы с ботом нужно подтвердить номер 📱",
         reply_markup=contact_kb(),
     )
