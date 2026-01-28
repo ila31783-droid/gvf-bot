@@ -252,6 +252,18 @@ async def ensure_verified(message: Message) -> bool:
 async def cmd_start(message: Message):
     await db_upsert_user(message.from_user.id, message.from_user.username)
 
+    user = await db_get_user(message.from_user.id)
+
+    # If already verified — go straight to menu
+    if user and user["is_verified"]:
+        await message.answer(
+            "🏠 *Главное меню*",
+            reply_markup=main_menu_ikb(),
+            parse_mode="Markdown",
+        )
+        return
+
+    # Otherwise — show start button
     await message.answer(
         "👋 *Добро пожаловать в GVF Market*\n\n"
         "Здесь студенты продают и покупают еду и услуги в общаге.\n\n"
