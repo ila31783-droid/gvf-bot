@@ -222,6 +222,33 @@ async def db_delete_ad(user_id: int, ad_id: int) -> bool:
 
 CANCEL_TEXT = "❌ Отмена"
 BACK_TEXT = "⬅️ Назад"
+HOME_TEXT = "🏠 Меню"
+
+
+# ----- Inline Main Menu -----
+def main_menu_ikb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🍔 Еда", callback_data="menu_food"),
+                InlineKeyboardButton(text="📚 Учёба", callback_data="menu_study"),
+            ],
+            [
+                InlineKeyboardButton(text="🛠 Услуги", callback_data="menu_services"),
+                InlineKeyboardButton(text="📢 Мои объявления", callback_data="menu_my"),
+            ],
+            [
+                InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu_help"),
+            ],
+        ]
+    )
+
+def back_to_menu_ikb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Меню", callback_data="menu_home")]
+        ]
+    )
 
 
 def main_kb() -> ReplyKeyboardMarkup:
@@ -230,6 +257,7 @@ def main_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="🍔 Еда"), KeyboardButton(text="📚 Учёба")],
             [KeyboardButton(text="🛠 Услуги"), KeyboardButton(text="📢 Мои объявления")],
             [KeyboardButton(text="📱 Обновить контакт"), KeyboardButton(text="ℹ️ Помощь")],
+            [KeyboardButton(text=HOME_TEXT)],
         ],
         resize_keyboard=True,
     )
@@ -351,7 +379,7 @@ async def start(message: Message):
 
     await message.answer(
         "✅ *Номер подтверждён!*\n\nВыбирай раздел в меню 👇",
-        reply_markup=main_kb(),
+        reply_markup=main_menu_ikb(),
         parse_mode="Markdown",
     )
 
@@ -367,7 +395,7 @@ async def help_cmd(message: Message):
         "— не спамь\n"
         "— указывай честное описание\n\n"
         "Если бот просит подтвердить номер — нажми ‘📱 Поделиться контактом’.",
-        reply_markup=main_kb(),
+        reply_markup=main_menu_ikb(),
         parse_mode="Markdown",
     )
 
@@ -391,7 +419,10 @@ async def on_contact(message: Message):
 
     await message.answer(
         "✅ Спасибо! Номер подтверждён.\n\nТеперь ты можешь пользоваться ботом 👇",
-        reply_markup=main_kb(),
+    )
+    await message.answer(
+        "🏠 Главное меню",
+        reply_markup=main_menu_ikb(),
     )
 
 
@@ -769,6 +800,14 @@ async def my_delete(call: CallbackQuery):
 
 
 # --------- GLOBAL GUARD / STUBS ---------
+# --------- GLOBAL GUARD / STUBS ---------
+# --------- GLOBAL GUARD / STUBS ---------
+
+# Handler for "🏠 Меню" text button (reply)
+@router.message(F.text == HOME_TEXT)
+async def home_menu_text(message: Message):
+    await message.answer("🏠 Главное меню", reply_markup=main_menu_ikb())
+
 
 @router.message()
 async def global_guard(message: Message, state: FSMContext):
@@ -801,12 +840,72 @@ async def global_guard(message: Message, state: FSMContext):
         await message.answer(
             "Этот раздел подключим следующим шагом 🙂\n"
             "Сейчас полностью работает *Еда* + *Мои объявления* ✅",
-            reply_markup=main_kb(),
+            reply_markup=back_to_menu_ikb(),
             parse_mode="Markdown",
         )
         return
 
-    await message.answer("Не понял 😅 Нажми кнопку в меню или напиши /help", reply_markup=main_kb())
+    await message.answer("Не понял 😅 Нажми кнопку в меню или напиши /help", reply_markup=main_menu_ikb())
+
+
+# ========== INLINE MENU CALLBACKS ==========
+
+@router.callback_query(F.data == "menu_home")
+async def cb_menu_home(call: CallbackQuery):
+    await call.message.edit_text(
+        "🏠 Главное меню",
+        reply_markup=main_menu_ikb(),
+        parse_mode="Markdown",
+    )
+    await call.answer()
+
+@router.callback_query(F.data == "menu_food")
+async def cb_menu_food(call: CallbackQuery):
+    await call.answer()
+    # Send reply keyboard for food section (reply-based flow)
+    await call.message.answer("🍔 Раздел: Еда", reply_markup=food_menu_kb(), parse_mode="Markdown")
+    # Also show inline back button
+    await call.message.answer("⬅️ Назад в меню", reply_markup=back_to_menu_ikb())
+
+@router.callback_query(F.data == "menu_my")
+async def cb_menu_my(call: CallbackQuery):
+    await call.answer()
+    # Mimic pressing "📢 Мои объявления"
+    user = await db_get_user(call.from_user.id)
+    if not user or not user.get("is_verified"):
+        await call.message.answer("Сначала подтвердите номер 👇", reply_markup=contact_kb())
+        return
+    ads = await db_list_my_ads(call.from_user.id, limit=100)
+    if not ads:
+        await call.message.answer("У тебя пока нет объявлений 😅")
+        return
+    _my_pos[call.from_user.id] = 0
+    await send_my_at_pos(call.message, ads, 0)
+
+@router.callback_query(F.data == "menu_help")
+async def cb_menu_help(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(
+        "*Команды:*\n"
+        "/start — меню\n"
+        "/help — помощь\n\n"
+        "*Правила:*\n"
+        "— не спамь\n"
+        "— указывай честное описание\n\n"
+        "Если бот просит подтвердить номер — нажми ‘📱 Поделиться контактом’.",
+        reply_markup=main_menu_ikb(),
+        parse_mode="Markdown",
+    )
+
+@router.callback_query(F.data.in_({"menu_study", "menu_services"}))
+async def cb_menu_stub(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(
+        "Этот раздел подключим следующим шагом 🙂\n"
+        "Сейчас полностью работает *Еда* + *Мои объявления* ✅",
+        reply_markup=back_to_menu_ikb(),
+        parse_mode="Markdown",
+    )
 
 
 # ============ APP ENTRYPOINT ============
