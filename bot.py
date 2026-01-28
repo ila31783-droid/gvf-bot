@@ -277,18 +277,34 @@ async def cmd_start(message: Message):
 async def start_go(call: CallbackQuery):
     user = await db_get_user(call.from_user.id)
 
-    await call.message.delete()
-
     # Если пользователь уже подтверждён — сразу показываем главное меню
     if user and user["is_verified"]:
-        await call.message.answer(
-            "🏠 Главное меню",
-            reply_markup=main_menu_ikb(),
-        )
+        try:
+            await call.message.edit_text(
+                "🏠 *Главное меню*",
+                reply_markup=main_menu_ikb(),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            try:
+                await call.message.delete()
+            except Exception:
+                pass
+            await call.message.answer(
+                "🏠 *Главное меню*",
+                reply_markup=main_menu_ikb(),
+                parse_mode="Markdown",
+            )
+
         await call.answer()
         return
 
     # Иначе — просим подтвердить номер
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
     await call.message.answer(
         "Для работы с ботом нужно подтвердить номер 📱",
         reply_markup=contact_kb(),
